@@ -35,8 +35,8 @@ window.__ModuleLoader__.load({
     const QR_SOURCE = /^data:image\/(?:png|webp);base64,[a-z\d+/]+={0,2}$/i
 
     const zh = {
-      'menu.bind': '绑定QQ会话',
-      'menu.unbind': '取消QQ会话绑定',
+      'menu.bind': '绑定 QQ 会话',
+      'menu.unbind': '解绑 QQ 会话',
       'row.bound': 'QQ 会话',
       'config.title': '允许 Agent 推送 QQ 消息',
       'config.description': '开启后，任意会话的 Agent 都可以调用 send_qq_message，向已绑定的 QQ 聊天推送消息。',
@@ -137,29 +137,47 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // --- QQ penguin glyph ---------------------------------------------------------
+    // --- QQ mark ------------------------------------------------------------------
 
-    const markStyle = { display: 'inline-flex', width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }
-    const QQ_BLUE = '#12b7f5'
+    // The session row reserves a 16x20 leading seat. Match its 16px width and let
+    // the 19:21 artwork be slightly taller, still inside the 20px seat.
+    const markStyle = { display: 'inline-flex', width: 16, height: 20, alignItems: 'center', justifyContent: 'center' }
+    const QQ_BLUE = '#0099FF'
+    const QQ_GLYPH_WIDTH = 16
+    const QQ_GLYPH_HEIGHT = 17.68
 
-    function QqPenguin({ size = 14 }) {
-      return React.createElement('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' }, [
-        React.createElement('g', { key: 'body', fill: QQ_BLUE }, [
-          React.createElement('ellipse', { key: 'b', cx: 8, cy: 9.7, rx: 4.7, ry: 5.1 }),
-          React.createElement('circle', { key: 'h', cx: 8, cy: 4.7, r: 3.6 }),
-          React.createElement('ellipse', { key: 'f1', cx: 5.1, cy: 14.1, rx: 1.7, ry: 0.85 }),
-          React.createElement('ellipse', { key: 'f2', cx: 10.9, cy: 14.1, rx: 1.7, ry: 0.85 }),
-        ]),
-        React.createElement('g', { key: 'eyes', fill: '#ffffff' }, [
-          React.createElement('ellipse', { key: 'e1', cx: 6.5, cy: 4.6, rx: 0.95, ry: 1.2 }),
-          React.createElement('ellipse', { key: 'e2', cx: 9.5, cy: 4.6, rx: 0.95, ry: 1.2 }),
-        ]),
+    function QqGlyph() {
+      return React.createElement('svg', {
+        width: QQ_GLYPH_WIDTH,
+        height: QQ_GLYPH_HEIGHT,
+        viewBox: '0 0 19 21',
+        fill: 'none',
+        'aria-hidden': 'true',
+        focusable: 'false',
+      }, [
+        React.createElement('path', {
+          key: 'eye-left',
+          d: 'M6.85 9.65039C7.31944 9.65039 7.7 10.0309 7.7 10.5004V12.5004C7.7 12.9698 7.31944 13.3504 6.85 13.3504C6.38056 13.3504 6 12.9698 6 12.5004V10.5004C6 10.0309 6.38056 9.65039 6.85 9.65039Z',
+          fill: QQ_BLUE,
+        }),
+        React.createElement('path', {
+          key: 'eye-right',
+          d: 'M11.85 9.65039C12.3194 9.65039 12.7 10.0309 12.7 10.5004V12.5004C12.7 12.9698 12.3194 13.3504 11.85 13.3504C11.3806 13.3504 11 12.9698 11 12.5004V10.5004C11 10.0309 11.3806 9.65039 11.85 9.65039Z',
+          fill: QQ_BLUE,
+        }),
+        React.createElement('path', {
+          key: 'body',
+          d: 'M10.2 3.8109C10.8795 3.49137 11.35 2.80063 11.35 2C11.35 0.895431 10.4545 0 9.34998 0C8.24541 0 7.34998 0.895431 7.34998 2C7.34998 2.80065 7.82044 3.49141 8.5 3.81092V4.68851C3.73448 5.11795 0 9.12306 0 14.0004V15.5004C0 18.179 2.17142 20.3504 4.85 20.3504H13.85C16.5286 20.3504 18.7 18.179 18.7 15.5004V14.0004C18.7 9.12305 14.9655 5.11795 10.2 4.68851V3.8109ZM9.35 6.35039C5.12502 6.35039 1.7 9.77541 1.7 14.0004V15.5004C1.7 17.2401 3.1103 18.6504 4.85 18.6504H13.85C15.5897 18.6504 17 17.2401 17 15.5004V14.0004C17 9.77541 13.575 6.35039 9.35 6.35039Z',
+          fill: QQ_BLUE,
+          fillRule: 'evenodd',
+          clipRule: 'evenodd',
+        }),
       ])
     }
 
     function QqMark({ title }) {
       return React.createElement('span', { style: markStyle, title, 'aria-label': title, role: 'img' },
-        React.createElement(QqPenguin, { size: 14 }))
+        React.createElement(QqGlyph))
     }
 
     function BoundRowMark({ sessionId, store, t }) {
