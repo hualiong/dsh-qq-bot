@@ -48,10 +48,10 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
   });
 
-  // Command output is markdown too; a platform rejection degrades to plain text.
-  const sendRich = (message, text) => runtime.sendMarkdown(message.replyTarget, text).catch(async (error) => {
-    logger.warn?.('[dsh-qq-lite] Markdown 回复失败，改用纯文本：', error?.message ?? error);
-    await send(message, text);
+  // sendMarkdownReply already retries plain text after a markdown rejection and
+  // refuses retries when delivery is uncertain, so never resend here.
+  const sendMarkdown = (message, text) => runtime.sendMarkdown(message.replyTarget, text).catch((error) => {
+    logger.warn?.('[dsh-qq-lite] Markdown 回复发送失败：', error?.message ?? error);
   });
 
   const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
@@ -95,10 +95,10 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   }
 
   async function command(message, name, args, startedAt) {
-    if (name === '/help') return sendRich(message, HELP);
+    if (name === '/help') return sendMarkdown(message, HELP);
     if (name === '/status') {
       const status = runtime.status;
-      return sendRich(message, [
+      return sendMarkdown(message, [
         '**QQ 机器人状态**',
         '',
         `- 连接：${status.ready ? '**已连接**' : `未连接（\`${status.state}\`）`}`,
@@ -109,19 +109,19 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       ].filter(Boolean).join('\n'));
     }
     if (name === '/new') {
-      if (!runtime.ready) return sendRich(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
+      if (!runtime.ready) return sendMarkdown(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
       let sessionId;
       try {
         sessionId = await createSession(ctx, settings.workspace);
         await state.setSession(sessionId);
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 新建会话失败：', error?.message ?? error);
-        return sendRich(message, userFacingError(error));
+        return sendMarkdown(message, userFacingError(error));
       }
       // `/new <message>` starts the first turn immediately, which also makes the
       // row appear in DSH's sidebar (a blank row stays hidden).
       if (args) return answer(message, sessionId, args, startedAt);
-      return sendRich(message, [
+      return sendMarkdown(message, [
         '已新建会话并绑定到本聊天。',
         '',
         `- 会话：\`${sessionId}\``,
@@ -132,19 +132,19 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     }
     if (name === '/model') {
       const sessionId = state.sessionId;
-      if (!sessionId) return sendRich(message, NO_BINDING);
+      if (!sessionId) return sendMarkdown(message, NO_BINDING);
       try {
-        return sendRich(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
+        return sendMarkdown(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 切换模型失败：', error?.message ?? error);
-        return sendRich(message, userFacingError(error));
+        return sendMarkdown(message, userFacingError(error));
       }
     }
     if (name === '/unbind') {
       await state.setSession(null);
-      return sendRich(message, '已解除 QQ 绑定。');
+      return sendMarkdown(message, '已解除 QQ 绑定。');
     }
-    return sendRich(message, `未知命令：\`${name}\`\n\n${HELP}`);
+    return sendMarkdown(message, `未知命令：\`${name}\`\n\n${HELP}`);
   }
 
   return {

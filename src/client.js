@@ -276,7 +276,18 @@ window.__ModuleLoader__.load({
         })
         .catch((failure) => setError(failure.message)), [connection])
 
+      // The page shows the live connection dot, so re-read it while it is open.
+      const refreshStatus = useCallback(() => callRpc(connection, 'connection.status')
+        .then(setStatus)
+        .catch(() => undefined), [connection])
+
       useEffect(() => { if (view === 'page') refresh() }, [view, refresh])
+
+      useEffect(() => {
+        if (view !== 'page') return undefined
+        const timer = setInterval(refreshStatus, STATUS_POLL_MS)
+        return () => clearInterval(timer)
+      }, [view, refreshStatus])
 
       useEffect(() => {
         if (!qr?.attemptId) return undefined

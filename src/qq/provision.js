@@ -1,20 +1,33 @@
 // QR provisioning: one active QR-login attempt at a time, polled by the plugin
 // page. The SDK owns the wire protocol; this module only tracks state and turns
 // the connect URL into a PNG data URL.
-import * as QRCodeModule from 'qrcode';
+import { createRequire } from 'node:module';
+import { dirname, sep } from 'node:path';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
-
-// qrcode is CommonJS whose module.exports is replaced with ./server after
-// evaluation. DSH's Host module replacement can leave that default export
-// empty, so use the named exports (Node detects the re-export statically).
-const QRCode = typeof QRCodeModule.toDataURL === 'function'
-  ? QRCodeModule
-  : QRCodeModule.default ?? QRCodeModule;
 
 const POLL_MS = 1000;
 const TTL_MS = 5 * 60_000;
 const MAX_ATTEMPTS = 8;
 const QR_WIDTH = 320;
+
+// qrcode is CommonJS. The Host's module replacement can leave its cache entries
+// half-evicted (module.exports stays the empty placeholder object), and an ESM
+// import of it cannot repair that. Evict the package once when the cached copy
+// is empty, then load it through the plain CommonJS loader.
+const requireCjs = createRequire(import.meta.url);
+
+function loadQrCode() {
+  const entry = requireCjs.resolve('qrcode');
+  const cached = requireCjs.cache?.[entry];
+  if (typeof cached?.exports?.toDataURL === 'function') return cached.exports;
+  const root = `${dirname(dirname(entry))}${sep}`;
+  for (const key of Object.keys(requireCjs.cache ?? {})) {
+    if (key.startsWith(root)) delete requireCjs.cache[key];
+  }
+  return requireCjs('qrcode');
+}
+
+const QRCode = loadQrCode();
 
 const encodeQr = (url) => QRCode.toDataURL(url, {
   type: 'image/png',

@@ -164,11 +164,11 @@ test('a failed markdown reply falls back to plain text once', async (t) => {
   assert.deepEqual(sent, ['Answer'], 'the answer went out as plain text');
 });
 
-test('a failed markdown command reply falls back to plain text once', async (t) => {
-  const { sent, bridge, message } = await fixture(t, { failMarkdown: true });
+test('a failed markdown command reply is logged, never resent', async (t) => {
+  const { sent, markdown, bridge, message } = await fixture(t, { failMarkdown: true });
   await bridge.accept(message({ messageId: 'm-1', content: '/help' }));
-  assert.equal(sent.length, 1);
-  assert.match(sent[0], /QQ 机器人命令/u);
+  assert.deepEqual(markdown, [], 'markdown delivery failed');
+  assert.deepEqual(sent, [], 'the reply is not sent twice');
 });
 
 test('a reply after the passive window becomes proactive', () => {

@@ -6,7 +6,7 @@ import { sessionExists } from './dsh.js';
 
 const CHANNEL = 'dsh-qq-lite';
 const PATH = `/api/${CHANNEL}`;
-const VERSION = '0.2.1'; // keep in step with package.json; shown in the status payload
+const VERSION = '0.2.2'; // keep in step with package.json; shown in the status payload
 
 function reply(rpcId, result) {
   const value = result.ok === false
@@ -31,10 +31,6 @@ export function installRpc(ctx, holder) {
 
     if (method === 'bot.save') return ok(await saveBot(ctx, holder, payload, logger));
     if (method === 'bot.delete') return ok(await deleteBot(ctx, holder, logger));
-    if (method === 'bot.reconnect') {
-      await holder.remount();
-      return ok(await describeStatus(ctx, holder));
-    }
 
     if (method === 'provision.begin') return ok(await holder.provision.begin({ source: CHANNEL }));
     if (method === 'provision.poll') {

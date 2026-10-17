@@ -117,7 +117,9 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
       status.state = 'stopped';
       try { current?.stop(); } catch { /* already down */ }
     },
-    sendMarkdown(target, text) {
+    // async so a disconnected bot rejects instead of throwing past the bridge's
+    // .catch (a synchronous throw would become an unhandled rejection).
+    async sendMarkdown(target, text) {
       return sendMarkdownReply(requireBot(), target, text, { logger });
     },
     async sendText(target, text) {

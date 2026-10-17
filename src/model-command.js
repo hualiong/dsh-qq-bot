@@ -1,7 +1,6 @@
 // /model support: read the Host model catalog and switch one session's model,
-// mirroring the chat-box picker (provider key, model key, reasoning efforts).
-// Everything printed is exactly what /model accepts: provider/model keys and
-// lower-case effort ids, so a user can copy a line back without translating it.
+// mirroring the chat-box picker. Keys and lower-case effort ids are the input
+// vocabulary, so no display-name translation is needed.
 import { sessionService } from './dsh.js';
 
 function currentSelection(catalog, projection) {
