@@ -58,7 +58,9 @@ dsh plugin --profile <profile> add @hualiong/dsh-qq-lite
 node --test test/
 ```
 
-`test/` 覆盖最终答案提取、Markdown 分段与回退、状态持久化、凭据发现、以及 `askSession` 的回合归属/超时。
+`test/` 覆盖最终答案提取、Markdown 分段与回退、状态持久化、凭据发现、管理接口、以及 `askSession`/`bridge` 的回合归属、超时与命令路由。
+
+宿主侧（`src/*.js`）改动后需要重启一次 DSH：Host 只在启动时导入插件模块，页面刷新不会重新加载 Host half。
 
 ## 许可
 
