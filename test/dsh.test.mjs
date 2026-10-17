@@ -6,9 +6,12 @@ import { askSession } from '../src/dsh.js';
 function fakeCtx() {
   const listeners = new Set();
   const prompts = [];
-  return {
+  const ctx = {
     prompts,
     listeners,
+    get(key) {
+      return key === 'sessionController' ? ctx.sessionController : undefined;
+    },
     sessionController: {
       async prompt(request) { prompts.push(request); },
     },
@@ -21,6 +24,7 @@ function fakeCtx() {
       for (const listener of [...listeners]) listener({ id: sessionId }, event);
     },
   };
+  return ctx;
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));

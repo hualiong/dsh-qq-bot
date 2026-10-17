@@ -18,7 +18,7 @@ async function fixture(t) {
   const created = [];
   const listeners = new Set();
   const ctx = {
-    get: (key) => (key === 'workspaceRegistry' ? { resolveByPath: async () => undefined } : undefined),
+    get: (key) => (key === 'workspaceRegistry' ? { resolveByPath: async () => undefined } : key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
       async create(request) { created.push(request); return { sessionId: 'session-new' }; },
       async prompt(request) {

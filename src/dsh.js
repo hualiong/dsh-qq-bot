@@ -9,20 +9,29 @@ import { ReplyTracker } from './qq/tracker.js';
 
 const REQUEST_PREFIX = 'qq-lite';
 
+// This plugin's fiber does not inject the session services, so they are read
+// through ctx.get (property access would throw "without inject").
+function sessions(ctx) {
+  const controller = ctx.get?.('sessionController');
+  if (!controller) throw new Error('sessionController 服务不可用（需要 DSH 会话功能）。');
+  return controller;
+}
+
 export async function createSession(ctx, cwd) {
   await mkdir(cwd, { recursive: true });
   const registry = ctx.get('workspaceRegistry');
   const workspace = registry?.resolveByPath ? await registry.resolveByPath(cwd).catch(() => undefined) : undefined;
-  const created = await ctx.sessionController.create(workspace ? { workspaceId: workspace.id } : { cwd });
+  const created = await sessions(ctx).create(workspace ? { workspaceId: workspace.id } : { cwd });
   return created.sessionId;
 }
 
 export async function sessionExists(ctx, sessionId) {
   try {
-    await ctx.sessionController.inspect(sessionId);
+    await sessions(ctx).inspect(sessionId);
     return true;
   } catch (error) {
     if (error?.code === 'session/not-found') return false;
+    if (/sessionController 服务不可用/u.test(error?.message ?? '')) return true; // cannot verify: let the prompt decide
     throw error;
   }
 }
@@ -49,7 +58,7 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
   };
   const off = ctx.on('session/event', onEvent, { global: true });
   try {
-    await ctx.sessionController.prompt({
+    await sessions(ctx).prompt({
       requestId,
       sessionId,
       mode: 'queue',

@@ -15,6 +15,7 @@ function fixture({ sessionId = null } = {}) {
     runtime: { status: { ready: true, state: 'connected', lastError: null } },
   };
   const ctx = {
+    get: (key) => (key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
       async inspect(id) {
         if (id === 'missing') throw Object.assign(new Error('gone'), { code: 'session/not-found' });
