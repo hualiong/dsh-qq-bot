@@ -35,8 +35,21 @@ function readRef(value) {
 
 export function apply(ctx, config = {}) {
   const logger = typeof ctx.logger === 'function' ? ctx.logger(name) : (ctx.logger ?? console);
-  const holder = { runtime: null, state: null, settings: null };
+  const holder = {
+    runtime: null,
+    state: null,
+    settings: null,
+    // Diagnostic counters for /status: proves the global session event feed
+    // reaches this plugin without waiting for a turn timeout.
+    events: { count: 0, lastType: null },
+  };
   let disposed = false;
+
+  // Count every session event this fiber sees; the tracker filters per turn.
+  ctx.effect(() => ctx.on('session/event', (_session, event) => {
+    holder.events.count += 1;
+    holder.events.lastType = typeof event?.type === 'string' ? event.type : null;
+  }, { global: true }));
 
   const startup = (async () => {
     const settings = await resolveSettings({
@@ -64,7 +77,7 @@ export function apply(ctx, config = {}) {
       logger,
       onMessage: (message) => bridge.accept(message),
     });
-    const bridge = createBridge({ runtime, state, ctx, settings, logger });
+    const bridge = createBridge({ runtime, state, ctx, settings, logger, stats: holder.events });
     holder.runtime = runtime;
     try {
       await runtime.start();

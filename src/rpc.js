@@ -34,6 +34,8 @@ export function installRpc(ctx, holder) {
           ownerOpenId: state.ownerOpenId,
           workspace: holder.settings?.workspace ?? null,
           appId: holder.settings?.appId ?? null,
+          events: holder.events?.count ?? 0,
+          lastEvent: holder.events?.lastType ?? null,
         },
       };
     }

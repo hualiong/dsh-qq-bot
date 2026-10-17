@@ -36,7 +36,7 @@ function commandOf(text) {
   return ALIASES.get(trimmed) ?? null;
 }
 
-export function createBridge({ runtime, state, ctx, settings, logger = console }) {
+export function createBridge({ runtime, state, ctx, settings, logger = console, stats }) {
   const accepted = new Set();
   let queue = Promise.resolve();
 
@@ -92,6 +92,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
         `QQ 连接：${status.ready ? '已连接' : `未连接（${status.state}）`}`,
         `绑定会话：${state.sessionId ?? '无'}`,
         `默认工作区：${settings.workspace}`,
+        stats ? `事件流：${stats.count}${stats.lastType ? `（最近 ${stats.lastType}）` : ''}` : null,
         status.lastError ? `最近错误：${status.lastError}` : null,
       ].filter(Boolean).join('\n'));
     }

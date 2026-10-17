@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { installRpc } from '../src/rpc.js';
 
-function fixture({ sessionId = null } = {}) {
+function fixture({ sessionId = null, events } = {}) {
   const state = {
     sessionId,
     ownerOpenId: 'openid-a',
@@ -13,6 +13,7 @@ function fixture({ sessionId = null } = {}) {
     state,
     settings: { workspace: 'C:\\workspace', appId: 'app-1' },
     runtime: { status: { ready: true, state: 'connected', lastError: null } },
+    ...(events === undefined ? {} : { events }),
   };
   const ctx = {
     get: (key) => (key === 'sessionController' ? ctx.sessionController : undefined),
@@ -55,6 +56,8 @@ test('status reports connection, binding, and workspace', async () => {
     ownerOpenId: 'openid-a',
     workspace: 'C:\\workspace',
     appId: 'app-1',
+    events: 0,
+    lastEvent: null,
   });
 });
 
@@ -92,4 +95,11 @@ test('a call arriving before startup reports not-ready', async () => {
   const result = await call('connection.status', {});
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'not-ready');
+});
+
+test('status reports the session event feed counter', async () => {
+  const { call } = fixture({ events: { count: 7, lastType: 'turn/end' } });
+  const result = await call('connection.status', {});
+  assert.equal(result.value.events, 7);
+  assert.equal(result.value.lastEvent, 'turn/end');
 });
