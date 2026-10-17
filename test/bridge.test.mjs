@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createBridge } from '../src/bridge.js';
+import { createBridge, PASSIVE_WINDOW_MS, replyTargetFor } from '../src/bridge.js';
 import { createStateStore } from '../src/state.js';
 
 const text = (value) => ({ type: 'text', text: value });
@@ -120,6 +120,13 @@ test('command panel aliases work with and without a leading slash', async (t) =>
   // A bare English word is an ordinary prompt, not a command.
   await bridge.accept(message({ messageId: 'm-4', content: 'help me please' }));
   assert.deepEqual(markdown, ['Answer']);
+});
+
+test('a reply after the passive window becomes proactive', () => {
+  const target = { scope: 'c2c', targetId: 'openid-a', msgId: 'msg-1' };
+  assert.equal(replyTargetFor(target, 0), target);
+  assert.equal(replyTargetFor(target, PASSIVE_WINDOW_MS), target);
+  assert.deepEqual(replyTargetFor(target, PASSIVE_WINDOW_MS + 1), { scope: 'c2c', targetId: 'openid-a' });
 });
 
 test('a bound chat relays only the final answer', async (t) => {

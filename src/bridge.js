@@ -14,6 +14,16 @@ const HELP = [
 
 const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定为 QQ 会话」，或发送 /new 新建一个。';
 
+// QQ c2c passive replies stay valid for 60 minutes (4 replies per msg_id);
+// after that window a reply must be proactive (no msgId). 55 minutes keeps a
+// margin, so ordinary long turns still use the passive path.
+export const PASSIVE_WINDOW_MS = 55 * 60_000;
+
+export function replyTargetFor(replyTarget, elapsedMs) {
+  if (elapsedMs <= PASSIVE_WINDOW_MS) return replyTarget;
+  return { scope: replyTarget.scope, targetId: replyTarget.targetId };
+}
+
 // The QQ command panel fills an item's name into the chat box (a leading "/" is
 // stripped by the platform), so the panel names double as command aliases.
 const ALIASES = new Map([
@@ -40,9 +50,9 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
     logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
   });
 
-  const sendAnswer = (message, text) => runtime.sendMarkdown(message.replyTarget, text).catch((error) => {
-    logger.warn?.('[dsh-qq-lite] QQ 答案发送失败：', error?.message ?? error);
-  });
+  // QQ passive replies are tied to the inbound msg_id and only work for a few
+  // minutes. A long turn answers proactively instead of failing to deliver.
+  const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
 
   async function claimOwner(sender) {
     if (!state.ownerOpenId) {
@@ -53,18 +63,26 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
   }
 
   async function answer(message, sessionId, text) {
+    const startedAt = Date.now();
     try {
       const result = await askSession(ctx, sessionId, text, { timeoutMs: settings.replyTimeoutMs });
+      const target = deliverTarget(message, startedAt);
       if (result.text) {
-        await sendAnswer(message, result.text);
+        await runtime.sendMarkdown(target, result.text).catch((error) => {
+          logger.warn?.('[dsh-qq-lite] QQ 答案发送失败：', error?.message ?? error);
+        });
         return;
       }
-      return send(message, result.reason?.kind === 'completed'
+      return runtime.sendText(target, result.reason?.kind === 'completed'
         ? '本轮处理已结束，没有文本回复。'
-        : turnFailureText(result.reason));
+        : turnFailureText(result.reason)).catch((error) => {
+        logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
+      });
     } catch (error) {
       logger.warn?.('[dsh-qq-lite] 处理消息失败：', error?.message ?? error);
-      return send(message, userFacingError(error));
+      return runtime.sendText(deliverTarget(message, startedAt), userFacingError(error)).catch((sendError) => {
+        logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', sendError?.message ?? sendError);
+      });
     }
   }
 
