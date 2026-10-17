@@ -104,6 +104,24 @@ test('/new creates a session in the default workspace, binds it, and unbind clea
   assert.equal(state.sessionId, null);
 });
 
+test('command panel aliases work with and without a leading slash', async (t) => {
+  const { sent, created, markdown, bridge, message } = await fixture(t);
+
+  await bridge.accept(message({ messageId: 'm-1', content: '新建会话' }));
+  assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
+  assert.match(sent[0], /session-new/);
+
+  await bridge.accept(message({ messageId: 'm-2', content: '/新建会话' }));
+  assert.equal(created.length, 2, 'a slash-prefixed panel name is still the command');
+
+  await bridge.accept(message({ messageId: 'm-3', content: '连接状态' }));
+  assert.match(sent.at(-1), /QQ 连接：已连接/);
+
+  // A bare English word is an ordinary prompt, not a command.
+  await bridge.accept(message({ messageId: 'm-4', content: 'help me please' }));
+  assert.deepEqual(markdown, ['Answer']);
+});
+
 test('a bound chat relays only the final answer', async (t) => {
   const { markdown, bridge, message, state } = await fixture(t);
   await state.setSession('session-1');
