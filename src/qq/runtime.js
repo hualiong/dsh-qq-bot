@@ -19,7 +19,12 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     status.state = 'failed';
     status.lastError = error?.message ?? String(error);
     logger.warn?.(`[dsh-qq-lite] QQ 连接失败，${RETRY_MS / 1000} 秒后重试：${status.lastError}`);
-    retryTimer = setTimeout(() => { retryTimer = null; void connect(); }, RETRY_MS);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      // The retry owns its failure: an unhandled rejection here would take the
+      // whole Host process down, and scheduleRetry already logged and re-armed.
+      void connect().catch(() => undefined);
+    }, RETRY_MS);
     retryTimer.unref?.();
   };
 
@@ -57,7 +62,10 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     bot = instance;
     instance.start().catch((error) => {
       status.ready = false;
+      status.state = 'failed';
+      status.lastError = error?.message ?? String(error);
       settle.reject(error);
+      scheduleRetry(error);
     });
     let timeout;
     try {
