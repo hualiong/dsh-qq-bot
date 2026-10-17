@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "QQ 精简版",
+    "description": "只做 QQ 的精简机器人桥：把一个会话绑定给 QQ、用 /new 在默认工作区新建对话、只回传最终答案，并允许任意会话通过 send_qq_message 主动推送。"
+  }
+}

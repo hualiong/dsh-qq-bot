@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="QQ Lite">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#37b6f6"/>
+      <stop offset="1" stop-color="#1d6fe0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>
+  <path d="M16 20.5A6.5 6.5 0 0 1 22.5 14h19A6.5 6.5 0 0 1 48 20.5v13a6.5 6.5 0 0 1-6.5 6.5H30.8l-8.9 6.6c-.9.7-2.2 0-2.2-1.1V39.4A6.5 6.5 0 0 1 16 33.5v-13Z" fill="#ffffff" fill-opacity=".97"/>
+  <circle cx="32" cy="27" r="7.4" fill="none" stroke="#1d6fe0" stroke-width="3.6"/>
+  <path d="M32.5 30.8 37 35" fill="none" stroke="#1d6fe0" stroke-width="3.6" stroke-linecap="round"/>
+  <circle cx="43.5" cy="45.5" r="5" fill="#0b3f8f" stroke="#ffffff" stroke-width="2.2"/>
+</svg>

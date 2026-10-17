@@ -1,0 +1,67 @@
+{
+  "name": "@hualiong/dsh-qq-lite",
+  "version": "0.1.0",
+  "description": "Minimal QQ-only IM bridge for DeepSeek Harness: bind one session to QQ, /new in a default workspace, relay only the final answer, and push from any session through the send_qq_message tool.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "qq",
+    "qqbot",
+    "im",
+    "chatbot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hualiong/dsh-qq-lite.git"
+  },
+  "homepage": "https://github.com/hualiong/dsh-qq-lite#readme",
+  "bugs": {
+    "url": "https://github.com/hualiong/dsh-qq-lite/issues"
+  },
+  "author": "hualiong",
+  "files": [
+    "src/",
+    "locale/",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@tencent-connect/qqbot-nodejs": "1.0.4"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection"
+      ],
+      "platform": "web"
+    }
+  }
+}

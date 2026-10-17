@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "QQ Lite",
+    "description": "A minimal QQ bridge: bind one session to QQ, start new conversations with /new in a default workspace, receive only the final answer, and let any session push through send_qq_message."
+  }
+}
