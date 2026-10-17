@@ -406,8 +406,8 @@ window.__ModuleLoader__.load({
               disabled: !switchReady,
               label: t('config.title'),
               onChange: (next) => {
-                form?.mutate?.([{ op: 'set', path: ['toolEnabled'], value: next }], snapshot?.revision)
-                  .catch(() => { /* a refused write leaves the switch where it was */ })
+                const write = form?.mutate?.([{ op: 'set', path: ['toolEnabled'], value: next }], snapshot?.revision)
+                if (write?.catch) write.catch(() => { /* a refused write leaves the switch where it was */ })
               },
             }),
           ]),
