@@ -1,6 +1,6 @@
 {
   "name": "@hualiong/dsh-qq-lite",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Minimal QQ-only IM bridge for DeepSeek Harness: bind one session to QQ, /new in a default workspace, relay only the final answer, and push from any session through the send_qq_message tool.",
   "icon": "./icon.svg",
   "type": "module",

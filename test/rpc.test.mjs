@@ -97,7 +97,7 @@ test('status reports connection, configuration, binding, and the event counter',
   const { call } = await fixture(t, { sessionId: 'session-1' });
   const result = await call('connection.status', {});
   assert.equal(result.ok, true);
-  assert.equal(result.value.version, '0.2.3');
+  assert.equal(result.value.version, '0.2.4');
   assert.equal(result.value.connected, true);
   assert.equal(result.value.configured, true);
   assert.equal(result.value.appId, APP_ID);

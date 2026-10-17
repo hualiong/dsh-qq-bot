@@ -139,12 +139,14 @@ window.__ModuleLoader__.load({
 
     // --- QQ mark ------------------------------------------------------------------
 
-    // The session row reserves a 16x20 leading seat. Match its 16px width and let
-    // the 19:21 artwork be slightly taller, still inside the 20px seat.
+    // The session row reserves a 16x20 leading seat. Native glyphs are drawn
+    // inset from that 16px width, so keep the 19:21 artwork at 14px wide
+    // (15.47px tall) and let the 16x20 seat centre it: 1px of air on each side
+    // matches the gap native icons leave before the title.
     const markStyle = { display: 'inline-flex', width: 16, height: 20, alignItems: 'center', justifyContent: 'center' }
     const QQ_BLUE = '#0099FF'
-    const QQ_GLYPH_WIDTH = 16
-    const QQ_GLYPH_HEIGHT = 17.68
+    const QQ_GLYPH_WIDTH = 14
+    const QQ_GLYPH_HEIGHT = 15.47
 
     function QqGlyph() {
       return React.createElement('svg', {
