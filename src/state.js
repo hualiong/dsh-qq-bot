@@ -1,6 +1,10 @@
 // One JSON document: the single QQ binding, the auto-claimed owner, the last
 // QQ chat the bot heard from (the push target), and the recent message ids
 // that were already handled (QQ redelivers; a prompt must never run twice).
+//
+// Writes are serialized and committed only after the file landed: a failed
+// write leaves memory unchanged (so QQ's redelivery can try again) and never
+// poisons the queue for later writes.
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -14,14 +18,23 @@ export function createStateStore(path) {
   let doc = empty();
   let writes = Promise.resolve();
 
-  const save = () => {
-    writes = writes.then(async () => {
-      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      const temporary = `${path}.tmp`;
-      await writeFile(temporary, `${JSON.stringify(doc, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      await rename(temporary, path);
+  const write = async (next) => {
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(temporary, path);
+    doc = next;
+  };
+
+  const mutate = (change) => {
+    const run = writes.then(() => {
+      const next = change(doc);
+      if (next === doc) return undefined;
+      return write(next);
     });
-    return writes;
+    // Keep the chain alive after a rejection; the caller still sees the error.
+    writes = run.catch(() => undefined);
+    return run;
   };
 
   return {
@@ -46,15 +59,22 @@ export function createStateStore(path) {
     hasSeen(messageId) { return doc.seenMessageIds.includes(messageId); },
     async markSeen(messageId) {
       if (this.hasSeen(messageId)) return;
-      doc.seenMessageIds = [...doc.seenMessageIds.slice(-(MAX_SEEN - 1)), messageId];
-      await save();
+      await mutate((current) => ({
+        ...current,
+        seenMessageIds: [...current.seenMessageIds.slice(-(MAX_SEEN - 1)), messageId],
+      }));
     },
-    async setSession(sessionId) { doc.sessionId = sessionId; await save(); },
-    async setOwner(openId) { doc.ownerOpenId = openId; await save(); },
+    async setSession(sessionId) {
+      await mutate((current) => (current.sessionId === sessionId
+        ? current : { ...current, sessionId }));
+    },
+    async setOwner(openId) {
+      await mutate((current) => (current.ownerOpenId === openId
+        ? current : { ...current, ownerOpenId: openId }));
+    },
     async setTarget(target) {
-      if (doc.target?.targetId === target?.targetId) return;
-      doc.target = target;
-      await save();
+      await mutate((current) => (current.target?.targetId === target?.targetId
+        ? current : { ...current, target }));
     },
   };
 }

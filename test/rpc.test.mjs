@@ -17,8 +17,9 @@ function fixture({ sessionId = null } = {}) {
   const ctx = {
     get: (key) => (key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
+      // The in-process inspect throws a plain Error (no `code`) when missing.
       async inspect(id) {
-        if (id === 'missing') throw Object.assign(new Error('gone'), { code: 'session/not-found' });
+        if (id === 'missing') throw new Error('session "missing" not found');
       },
     },
     connection: { fetch: { register: (route) => { ctx.route = route; return () => {}; } } },

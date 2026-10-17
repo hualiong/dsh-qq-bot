@@ -1,22 +1,19 @@
 // Inbound QQ messages: owner claim, dedupe, the four commands, and the
 // request/response relay for ordinary text. One prompt at a time per chat, so
 // answer order matches message order.
+import { ALIASES, COMMANDS } from './commands.js';
 import { askSession, createSession, turnFailureText, userFacingError } from './dsh.js';
 
 const HELP = [
   'QQ机器人命令：',
-  '/new      在默认工作区新建会话并绑定到本聊天',
-  '/status   查看连接与绑定状态',
-  '/unbind   解除 QQ 绑定',
-  '/help     显示本帮助',
+  ...COMMANDS.map(({ command, desc }) => `${command.padEnd(9)}${desc}`),
   '在 QQ 输入 / 可打开指令面板；直接发送文字即可与绑定的 DSH 会话对话。',
 ].join('\n');
 
 const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定为 QQ 会话」，或发送 /new 新建一个。';
 
 // QQ c2c passive replies stay valid for 60 minutes (4 replies per msg_id);
-// after that window a reply must be proactive (no msgId). 55 minutes keeps a
-// margin, so ordinary long turns still use the passive path.
+// after that a reply must be proactive (no msgId). 55 minutes keeps a margin.
 export const PASSIVE_WINDOW_MS = 55 * 60_000;
 
 export function replyTargetFor(replyTarget, elapsedMs) {
@@ -24,22 +21,13 @@ export function replyTargetFor(replyTarget, elapsedMs) {
   return { scope: replyTarget.scope, targetId: replyTarget.targetId };
 }
 
-// The QQ command panel fills an item's name into the chat box (a leading "/" is
-// stripped by the platform), so the panel names double as command aliases.
-const ALIASES = new Map([
-  ['新建会话', '/new'],
-  ['连接状态', '/status'],
-  ['解除绑定', '/unbind'],
-  ['显示帮助', '/help'],
-]);
-
+// A panel item's name is filled into the chat box as-is, so it acts as a bare
+// command — but only when it is the whole message: "解除绑定 是什么意思" is a
+// question, not an unbind. Slash commands keep the first-word rule.
 function commandOf(text) {
   const trimmed = text.trim();
-  const word = trimmed.split(/\s+/u, 1)[0];
-  const bare = word.replace(/^\/+/u, '');
-  if (ALIASES.has(word)) return ALIASES.get(word);
-  if (ALIASES.has(bare)) return ALIASES.get(bare);
-  return trimmed.startsWith('/') ? word.toLowerCase() : null;
+  if (trimmed.startsWith('/')) return trimmed.split(/\s+/u, 1)[0].toLowerCase();
+  return ALIASES.get(trimmed) ?? null;
 }
 
 export function createBridge({ runtime, state, ctx, settings, logger = console }) {
@@ -50,8 +38,6 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
     logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
   });
 
-  // QQ passive replies are tied to the inbound msg_id and only work for a few
-  // minutes. A long turn answers proactively instead of failing to deliver.
   const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
 
   async function claimOwner(sender) {
@@ -62,8 +48,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
     return state.ownerOpenId === sender;
   }
 
-  async function answer(message, sessionId, text) {
-    const startedAt = Date.now();
+  async function answer(message, sessionId, text, startedAt) {
     try {
       const result = await askSession(ctx, sessionId, text, { timeoutMs: settings.replyTimeoutMs });
       const target = deliverTarget(message, startedAt);
@@ -102,7 +87,9 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
       try {
         const sessionId = await createSession(ctx, settings.workspace);
         await state.setSession(sessionId);
-        return send(message, `已新建会话并绑定到本聊天。\n会话：${sessionId}\n工作区：${settings.workspace}`);
+        // DSH hides a blank row until its first turn starts; say so instead of
+        // letting /new look broken.
+        return send(message, `已新建会话并绑定到本聊天。\n会话：${sessionId}\n工作区：${settings.workspace}\n（侧栏会在本会话第一条消息开始后显示这一行）`);
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 新建会话失败：', error?.message ?? error);
         return send(message, userFacingError(error));
@@ -122,6 +109,9 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
       const sender = message.senderId;
       if (!messageId || !sender || accepted.has(messageId) || state.hasSeen(messageId)) return;
       accepted.add(messageId);
+      // The passive-reply clock starts when the message arrives, not when the
+      // queue reaches it.
+      const startedAt = Date.now();
       try {
         if (!(await claimOwner(sender))) return send(message, '这个 QQ 机器人已绑定其他用户，无法使用。');
         await state.setTarget({ scope: 'c2c', targetId: sender });
@@ -136,7 +126,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
         // in the queue must not retarget a message the user already sent.
         const sessionId = state.sessionId;
         if (!sessionId) return send(message, NO_BINDING);
-        const task = queue.then(() => answer(message, sessionId, text));
+        const task = queue.then(() => answer(message, sessionId, text, startedAt));
         queue = task.catch(() => undefined);
         await task;
       } finally {

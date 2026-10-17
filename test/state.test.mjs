@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -44,6 +44,28 @@ test('unbind keeps the owner and the push target', async (t) => {
   assert.equal(reloaded.sessionId, null);
   assert.equal(reloaded.ownerOpenId, 'openid-a');
   assert.equal(reloaded.target.targetId, 'openid-a');
+});
+
+test('a failed write leaves memory unchanged and later writes still run', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-state-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dir = join(root, 'data');
+  await mkdir(dir);
+  const state = await createStateStore(join(dir, 'state.json')).load();
+
+  // Replace the directory with a file so mkdir/write fail.
+  await rm(dir, { recursive: true, force: true });
+  await writeFile(dir, 'blocked');
+  await assert.rejects(state.setSession('session-broken'));
+  assert.equal(state.sessionId, null, 'a failed write did not commit in memory');
+
+  // Restore the directory: the queue must still work, not stay poisoned.
+  await rm(dir, { force: true });
+  await mkdir(dir);
+  await state.setSession('session-ok');
+  assert.equal(state.sessionId, 'session-ok');
+  const reloaded = await createStateStore(join(dir, 'state.json')).load();
+  assert.equal(reloaded.sessionId, 'session-ok');
 });
 
 test('the seen list is bounded and keeps the newest ids', async (t) => {

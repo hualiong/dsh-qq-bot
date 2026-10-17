@@ -13,7 +13,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
   let bot = null;
   let stopping = false;
   let retryTimer = null;
-  const status = { ready: false, state: 'idle', lastError: null, connectedAt: null };
+  const status = { ready: false, state: 'idle', lastError: null };
 
   const scheduleRetry = (error) => {
     if (stopping || retryTimer) return;
@@ -47,7 +47,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     const ready = new Promise((resolve, reject) => { settle = { resolve, reject }; });
     instance.on('ready', () => {
       status.ready = true; status.state = 'connected';
-      status.connectedAt = Date.now(); status.lastError = null;
+      status.lastError = null;
       settle.resolve();
     });
     instance.on('resumed', () => {
@@ -84,6 +84,11 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
       throw error;
     } finally {
       clearTimeout(timeout);
+    }
+    // A dispose during the first connect must not leave a live gateway behind.
+    if (stopping) {
+      try { instance.stop(); } catch { /* already down */ }
+      return;
     }
     // Publish the command panel the QQ client shows after typing "/". It is
     // decoration: a bot without panel permission still answers commands.

@@ -20,9 +20,23 @@ function sessions(ctx) {
 export async function createSession(ctx, cwd) {
   await mkdir(cwd, { recursive: true });
   const registry = ctx.get('workspaceRegistry');
-  const workspace = registry?.resolveByPath ? await registry.resolveByPath(cwd).catch(() => undefined) : undefined;
+  // resolveByPath only looks up; register the configured directory when it is
+  // not a workspace yet, so the new row lands in the workspace the user sees.
+  let workspace;
+  if (registry?.resolveByPath) {
+    workspace = await registry.resolveByPath(cwd).catch(() => undefined);
+    if (!workspace && typeof registry.create === 'function') {
+      workspace = await registry.create(cwd).catch(() => undefined);
+    }
+  }
   const created = await sessions(ctx).create(workspace ? { workspaceId: workspace.id } : { cwd });
   return created.sessionId;
+}
+
+function isSessionMissing(error) {
+  return error?.code === 'session/not-found'
+    || error?.name === 'ApiSessionNotFound'
+    || /not found/iu.test(error?.message ?? '');
 }
 
 export async function sessionExists(ctx, sessionId) {
@@ -30,7 +44,7 @@ export async function sessionExists(ctx, sessionId) {
     await sessions(ctx).inspect(sessionId);
     return true;
   } catch (error) {
-    if (error?.code === 'session/not-found') return false;
+    if (isSessionMissing(error)) return false;
     if (/sessionController 服务不可用/u.test(error?.message ?? '')) return true; // cannot verify: let the prompt decide
     throw error;
   }

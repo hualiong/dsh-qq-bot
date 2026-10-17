@@ -9,7 +9,7 @@ import { createStateStore } from '../src/state.js';
 
 const text = (value) => ({ type: 'text', text: value });
 
-async function fixture(t) {
+async function fixture(t, { workspace } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
@@ -18,7 +18,9 @@ async function fixture(t) {
   const created = [];
   const listeners = new Set();
   const ctx = {
-    get: (key) => (key === 'workspaceRegistry' ? { resolveByPath: async () => undefined } : key === 'sessionController' ? ctx.sessionController : undefined),
+    get: (key) => (key === 'workspaceRegistry'
+      ? { resolveByPath: async () => workspace, create: async () => workspace }
+      : key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
       async create(request) { created.push(request); return { sessionId: 'session-new' }; },
       async prompt(request) {
@@ -104,23 +106,43 @@ test('/new creates a session in the default workspace, binds it, and unbind clea
   assert.equal(state.sessionId, null);
 });
 
-test('command panel aliases work with and without a leading slash', async (t) => {
+test('command panel aliases work as the whole message', async (t) => {
   const { sent, created, markdown, bridge, message } = await fixture(t);
 
   await bridge.accept(message({ messageId: 'm-1', content: '新建会话' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.match(sent[0], /session-new/);
 
-  await bridge.accept(message({ messageId: 'm-2', content: '/新建会话' }));
-  assert.equal(created.length, 2, 'a slash-prefixed panel name is still the command');
+  await bridge.accept(message({ messageId: 'm-2', content: '/new' }));
+  assert.equal(created.length, 2, 'the slash form still works');
 
   await bridge.accept(message({ messageId: 'm-3', content: '连接状态' }));
   assert.match(sent.at(-1), /QQ 连接：已连接/);
 
-  // A bare English word is an ordinary prompt, not a command.
+  // A word that merely starts with an alias is an ordinary prompt.
   await bridge.accept(message({ messageId: 'm-4', content: 'help me please' }));
   assert.deepEqual(markdown, ['Answer']);
 });
+
+test('an alias followed by text stays a prompt instead of running the command', async (t) => {
+  const { state, markdown, bridge, message } = await fixture(t);
+  await state.setSession('session-1');
+
+  await bridge.accept(message({ messageId: 'm-1', content: '解除绑定 是什么意思' }));
+  assert.equal(state.sessionId, 'session-1', 'the binding is untouched');
+  assert.deepEqual(markdown, ['Answer'], 'the sentence reached the session');
+
+  await bridge.accept(message({ messageId: 'm-2', content: '新建会话 帮我写个函数' }));
+  assert.equal(state.sessionId, 'session-1', 'no new session was created');
+});
+
+test('/new uses the registered workspace when the directory is known', async (t) => {
+  const workspace = { id: 'ws-1', path: 'C:\\workspace' };
+  const { created, bridge, message } = await fixture(t, { workspace });
+  await bridge.accept(message({ messageId: 'm-1', content: '/new' }));
+  assert.deepEqual(created, [{ workspaceId: 'ws-1' }]);
+});
+
 
 test('a reply after the passive window becomes proactive', () => {
   const target = { scope: 'c2c', targetId: 'openid-a', msgId: 'msg-1' };
