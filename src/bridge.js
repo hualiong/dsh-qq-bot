@@ -21,12 +21,18 @@ export function replyTargetFor(replyTarget, elapsedMs) {
   return { scope: replyTarget.scope, targetId: replyTarget.targetId };
 }
 
-// A panel item's name is filled into the chat box as-is, so it acts as a bare
-// command — but only when it is the whole message: "解除绑定 是什么意思" is a
-// question, not an unbind. Slash commands keep the first-word rule.
+// A panel item's name is filled into the chat box, usually with the "/" the QQ
+// client adds for command items, so it acts as a command — but only when it is
+// the whole message: "解除绑定 是什么意思" is a question, not an unbind. Slash
+// commands keep the first-word rule.
 function commandOf(text) {
   const trimmed = text.trim();
-  if (trimmed.startsWith('/')) return trimmed.split(/\s+/u, 1)[0].toLowerCase();
+  if (!trimmed) return null;
+  const word = trimmed.split(/\s+/u, 1)[0];
+  if (trimmed.startsWith('/')) {
+    const bare = word.replace(/^\/+/u, '');
+    return ALIASES.get(bare) ?? word.toLowerCase();
+  }
   return ALIASES.get(trimmed) ?? null;
 }
 
@@ -53,9 +59,16 @@ export function createBridge({ runtime, state, ctx, settings, logger = console }
       const result = await askSession(ctx, sessionId, text, { timeoutMs: settings.replyTimeoutMs });
       const target = deliverTarget(message, startedAt);
       if (result.text) {
-        await runtime.sendMarkdown(target, result.text).catch((error) => {
-          logger.warn?.('[dsh-qq-lite] QQ 答案发送失败：', error?.message ?? error);
-        });
+        try {
+          await runtime.sendMarkdown(target, result.text);
+        } catch (error) {
+          // sendMarkdownReply only throws when nothing was delivered, so a
+          // plain-text retry cannot duplicate the answer.
+          logger.warn?.('[dsh-qq-lite] Markdown 回复失败，改用纯文本：', error?.message ?? error);
+          await runtime.sendText(target, result.text).catch((fallbackError) => {
+            logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', fallbackError?.message ?? fallbackError);
+          });
+        }
         return;
       }
       return runtime.sendText(target, result.reason?.kind === 'completed'

@@ -4,6 +4,7 @@ import { QQBot, contentSanitizer, typingIndicator } from '@tencent-connect/qqbot
 
 import { ensureCommandPanel } from './panels.js';
 import { sendMarkdownReply } from './reply.js';
+import { chunks } from './text.js';
 
 const CONNECT_TIMEOUT_MS = 20_000;
 const RETRY_MS = 15_000;
@@ -119,8 +120,9 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     sendMarkdown(target, text) {
       return sendMarkdownReply(requireBot(), target, text, { logger });
     },
-    sendText(target, text) {
-      return requireBot().sendText(target, text);
+    async sendText(target, text) {
+      const instance = requireBot();
+      for (const part of chunks(text)) await instance.sendText(target, part);
     },
   };
 }

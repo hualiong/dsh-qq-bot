@@ -496,3 +496,50 @@ test('accumulateFinalAssistantText drops pre-tool text and ignores reasoning', (
   accumulateFinalAssistantText(accumulator, message(1, [text('Answer')]));
   assert.equal(accumulator.text, 'Answer');
 });
+
+// Live in-process sessions append user/message without a turn id; the turn is
+// only named by the surrounding turn/start. This is the shape a real QQ run
+// produced (turn/start before the prompt, then user/message with no turn).
+test('QQ final answer tracks a live prompt that carries no turn id', () => {
+  const tracker = new ReplyTracker({ requestId: REQUEST_ID });
+  const events = [
+    { seq: 5, type: 'turn/start', data: { turn: 1 } },
+    { seq: 9, type: 'user/message', data: { source: { kind: 'user', rpcId: REQUEST_ID } } },
+    { seq: 20, type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [text('Answer')] } } },
+    { seq: 22, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ];
+  for (const event of events) tracker.consume(event);
+  assert.equal(tracker.finished, true);
+  assert.equal(tracker.turn, 1);
+  assert.equal(tracker.finalAnswer, 'Answer');
+  assert.equal(tracker.reason.kind, 'completed');
+});
+
+test('QO final answer binds an unattributed prompt at the next turn/start', () => {
+  const tracker = new ReplyTracker({ requestId: REQUEST_ID });
+  const events = [
+    { seq: 1, type: 'user/message', data: { source: { kind: 'user', rpcId: REQUEST_ID } } },
+    { seq: 2, type: 'turn/start', data: { turn: 3 } },
+    { seq: 3, type: 'assistant/message', data: { turn: 3, step: 0, message: { content: [text('Answer')] } } },
+    { seq: 4, type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
+  ];
+  for (const event of events) tracker.consume(event);
+  assert.equal(tracker.turn, 3);
+  assert.equal(tracker.finished, true);
+  assert.equal(tracker.finalAnswer, 'Answer');
+});
+
+test('QO final answer ignores turns before the prompt', () => {
+  const tracker = new ReplyTracker({ requestId: REQUEST_ID });
+  const events = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    { seq: 2, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { seq: 3, type: 'turn/start', data: { turn: 2 } },
+    { seq: 4, type: 'user/message', data: { source: { kind: 'user', rpcId: REQUEST_ID } } },
+    { seq: 5, type: 'assistant/message', data: { turn: 2, step: 0, message: { content: [text('Answer')] } } },
+    { seq: 6, type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+  ];
+  for (const event of events) tracker.consume(event);
+  assert.equal(tracker.turn, 2);
+  assert.equal(tracker.finalAnswer, 'Answer');
+});

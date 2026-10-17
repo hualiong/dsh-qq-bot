@@ -94,6 +94,8 @@ export class ReplyTracker {
   #requestId;
   #lastSeq = -1;
   #turn = null;
+  #openTurn = null;
+  #matched = false;
   #finished = false;
   #reason = null;
   #finalAssistantText = new AssistantTextAccumulator();
@@ -113,40 +115,50 @@ export class ReplyTracker {
     if (typeof seq !== 'number' || !Number.isFinite(seq)) return false;
     if (this.#finished) return false;
     if (seq <= this.#lastSeq) return false;
+    const type = event?.type;
+    const data = event?.data;
+    const turn = Number.isSafeInteger(data?.turn) ? data.turn : null;
 
-    if (this.#turn === null) {
-      // Before the tracked turn exists, nothing but the matching prompt
-      // user/message may start it; unrelated turns never do.
-      if (event?.type !== 'user/message' || event.data?.source?.rpcId !== this.#requestId) {
-        return false;
-      }
+    // A live user/message carries no turn id (only turn/start does), so the
+    // latest turn/start before the prompt names the turn the prompt belongs to.
+    // Pre-match frames never advance the cursor: the prompt may still arrive.
+    if (type === 'turn/start') {
+      this.#openTurn = turn;
+      if (!this.#matched) return false;
       this.#lastSeq = seq;
-      const turn = Number.isSafeInteger(event.data?.turn) ? event.data.turn : null;
-      // Without a turn id the event cannot be attributed, so tracking waits for
-      // a later (still matching) message instead of guessing.
-      if (turn === null) return false;
-      this.#turn = turn;
+      if (this.#turn === null) this.#turn = turn;
+      return this.#turn === turn;
+    }
+
+    if (!this.#matched) {
+      if (type !== 'user/message' || data?.source?.rpcId !== this.#requestId) return false;
+      this.#matched = true;
+      this.#lastSeq = seq;
+      // Until a turn/start names the turn, stay matched but unattributed.
+      this.#turn = turn ?? this.#openTurn;
       return true;
     }
 
     this.#lastSeq = seq;
 
-    if (event?.type === 'user/message' && event.data?.source?.rpcId === this.#requestId) {
+    if (this.#turn === null) return false;
+
+    if (type === 'user/message' && data?.source?.rpcId === this.#requestId) {
       // A repeated prompt echo is idempotent: it may re-state the turn, but it
       // must not clear accumulated text or resurrect a finished turn.
-      if (Number.isSafeInteger(event.data?.turn)) this.#turn = event.data.turn;
+      if (turn !== null) this.#turn = turn;
       return true;
     }
 
-    if (event?.type === 'turn/end') {
-      if (event.data?.turn !== this.#turn) return false;
+    if (type === 'turn/end') {
+      if (turn !== this.#turn) return false;
       this.#finished = true;
-      this.#reason = event.data?.reason ?? null;
+      this.#reason = data?.reason ?? null;
       return true;
     }
 
     // Every other event must belong to the tracked turn to affect the answer.
-    if (event.data?.turn !== this.#turn) return false;
+    if (turn !== this.#turn) return false;
 
     accumulateFinalAssistantText(this.#finalAssistantText, event);
     return true;

@@ -25,14 +25,14 @@ window.__ModuleLoader__.load({
     const STATUS_POLL_MS = 10_000
 
     const zh = {
-      'menu.bind': '绑定为 QQ 会话',
-      'menu.unbind': '取消 QQ 绑定',
+      'menu.bind': '绑定QQ会话',
+      'menu.unbind': '取消QQ会话绑定',
       'row.bound': 'QQ 会话',
       'config.title': '允许 Agent 推送 QQ 消息',
       'config.description': '开启后，任意会话的 Agent 都可以调用 send_qq_message，向已绑定的 QQ 聊天推送消息。',
     }
     const en = {
-      'menu.bind': 'Bind as QQ session',
+      'menu.bind': 'Bind QQ session',
       'menu.unbind': 'Unbind QQ session',
       'row.bound': 'QQ session',
       'config.title': 'Let Agents push to QQ',
@@ -65,16 +65,30 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // --- bound-session row mark ---------------------------------------------------
+    // --- QQ penguin glyph ---------------------------------------------------------
 
     const markStyle = { display: 'inline-flex', width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }
     const QQ_BLUE = '#12b7f5'
 
+    // A flat penguin silhouette: body, head, feet, and two white eyes.
+    function QqPenguin({ size = 14 }) {
+      return React.createElement('svg', { width: size, height: size, viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' }, [
+        React.createElement('g', { key: 'body', fill: QQ_BLUE }, [
+          React.createElement('ellipse', { key: 'b', cx: 8, cy: 9.7, rx: 4.7, ry: 5.1 }),
+          React.createElement('circle', { key: 'h', cx: 8, cy: 4.7, r: 3.6 }),
+          React.createElement('ellipse', { key: 'f1', cx: 5.1, cy: 14.1, rx: 1.7, ry: 0.85 }),
+          React.createElement('ellipse', { key: 'f2', cx: 10.9, cy: 14.1, rx: 1.7, ry: 0.85 }),
+        ]),
+        React.createElement('g', { key: 'eyes', fill: '#ffffff' }, [
+          React.createElement('ellipse', { key: 'e1', cx: 6.5, cy: 4.6, rx: 0.95, ry: 1.2 }),
+          React.createElement('ellipse', { key: 'e2', cx: 9.5, cy: 4.6, rx: 0.95, ry: 1.2 }),
+        ]),
+      ])
+    }
+
     function QqMark({ title }) {
       return React.createElement('span', { style: markStyle, title, 'aria-label': title, role: 'img' },
-        React.createElement('svg', { width: 14, height: 14, viewBox: '0 0 16 16' },
-          React.createElement('circle', { cx: 8, cy: 6.8, r: 4.4, fill: 'none', stroke: QQ_BLUE, strokeWidth: 2 }),
-          React.createElement('path', { d: 'M10.5 9.7 12.8 12', fill: 'none', stroke: QQ_BLUE, strokeWidth: 2, strokeLinecap: 'round' })))
+        React.createElement(QqPenguin, { size: 14 }))
     }
 
     function BoundRowMark({ sessionId, store, t }) {
@@ -95,7 +109,10 @@ window.__ModuleLoader__.load({
           .then(() => store.refresh())
           .catch((error) => { console.warn(`[${NS}] ${t(isBound ? 'menu.unbind' : 'menu.bind')}:`, error) })
       }, [connection, isBound, sessionId, setMenuOpen, store, t])
-      return React.createElement(MenuItemButton, { onSelect }, t(isBound ? 'menu.unbind' : 'menu.bind'))
+      return React.createElement(MenuItemButton, {
+        onSelect,
+        icon: React.createElement(QqPenguin, { size: 16 }),
+      }, t(isBound ? 'menu.unbind' : 'menu.bind'))
     }
 
     // --- plugin row configuration -------------------------------------------------

@@ -9,7 +9,7 @@ import { createStateStore } from '../src/state.js';
 
 const text = (value) => ({ type: 'text', text: value });
 
-async function fixture(t, { workspace } = {}) {
+async function fixture(t, { workspace, failMarkdown = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
@@ -47,7 +47,10 @@ async function fixture(t, { workspace } = {}) {
     ready: true,
     status: { ready: true, state: 'connected', lastError: null },
     async sendText(target, value) { sent.push(value); },
-    async sendMarkdown(target, value) { markdown.push(value); },
+    async sendMarkdown(target, value) {
+      if (failMarkdown) throw new Error('markdown rejected');
+      markdown.push(value);
+    },
   };
   const bridge = createBridge({
     runtime, state, ctx,
@@ -143,6 +146,20 @@ test('/new uses the registered workspace when the directory is known', async (t)
   assert.deepEqual(created, [{ workspaceId: 'ws-1' }]);
 });
 
+
+test('a slash-prefixed panel name is still the command', async (t) => {
+  const { created, bridge, message } = await fixture(t);
+  await bridge.accept(message({ messageId: 'm-1', content: '/新建会话' }));
+  assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
+});
+
+test('a failed markdown reply falls back to plain text once', async (t) => {
+  const { sent, markdown, bridge, message, state } = await fixture(t, { failMarkdown: true });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.deepEqual(markdown, [], 'markdown delivery failed');
+  assert.deepEqual(sent, ['Answer'], 'the answer went out as plain text');
+});
 
 test('a reply after the passive window becomes proactive', () => {
   const target = { scope: 'c2c', targetId: 'openid-a', msgId: 'msg-1' };
