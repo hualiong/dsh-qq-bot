@@ -2,6 +2,7 @@
 // needs (markdown answer delivery, short plain notices).
 import { QQBot, contentSanitizer, typingIndicator } from '@tencent-connect/qqbot-nodejs';
 
+import { ensureCommandPanel } from './panels.js';
 import { sendMarkdownReply } from './reply.js';
 
 const CONNECT_TIMEOUT_MS = 20_000;
@@ -84,6 +85,11 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     } finally {
       clearTimeout(timeout);
     }
+    // Publish the command panel the QQ client shows after typing "/". It is
+    // decoration: a bot without panel permission still answers commands.
+    ensureCommandPanel(instance, { logger }).catch((error) => {
+      logger.warn?.('[dsh-qq-lite] QQ 指令面板配置失败：', error?.message ?? error);
+    });
   };
 
   const requireBot = () => {

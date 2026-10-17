@@ -57,6 +57,9 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
     timer.unref?.();
   };
   const off = ctx.on('session/event', onEvent, { global: true });
+  // `sessionController.prompt(request, signal)` insists on an AbortSignal even
+  // when called in-process; it only gates admission.
+  const admission = new AbortController();
   try {
     await sessions(ctx).prompt({
       requestId,
@@ -64,7 +67,7 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
       mode: 'queue',
       content: [{ type: 'text', text }],
       clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
+    }, admission.signal);
     arm();
     await finished;
     if (!tracker.finished) {
@@ -75,6 +78,7 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
     return { turn: tracker.turn, reason: tracker.reason, text: tracker.finalAnswer };
   } finally {
     if (timer) clearTimeout(timer);
+    admission.abort();
     off?.();
   }
 }

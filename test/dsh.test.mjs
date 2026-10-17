@@ -6,14 +6,19 @@ import { askSession } from '../src/dsh.js';
 function fakeCtx() {
   const listeners = new Set();
   const prompts = [];
+  const signals = [];
   const ctx = {
     prompts,
+    signals,
     listeners,
     get(key) {
       return key === 'sessionController' ? ctx.sessionController : undefined;
     },
     sessionController: {
-      async prompt(request) { prompts.push(request); },
+      async prompt(request, signal) {
+        prompts.push(request);
+        signals.push(signal);
+      },
     },
     on(event, handler) {
       assert.equal(event, 'session/event');
@@ -37,6 +42,7 @@ test('askSession returns only the post-last-tool answer of its own turn', async 
   const { requestId } = ctx.prompts[0];
   assert.equal(ctx.prompts[0].mode, 'queue');
   assert.deepEqual(ctx.prompts[0].content, [text('hi')]);
+  assert.ok(ctx.signals[0] instanceof AbortSignal, 'prompt receives an AbortSignal');
 
   ctx.emit('session-1', { seq: 1, type: 'user/message', data: { turn: 1, source: { kind: 'user', rpcId: requestId } } });
   ctx.emit('session-1', { seq: 2, type: 'assistant/message', data: { turn: 1, step: 0, message: { content: [text('Checking'), { type: 'tool-call', id: 'c', name: 'bash', arguments: '{}' }] } } });

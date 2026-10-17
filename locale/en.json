@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "QQ Lite",
-    "description": "A minimal QQ bridge: bind one session to QQ, start new conversations with /new in a default workspace, receive only the final answer, and let any session push through send_qq_message."
+    "title": "QQ Robot",
+    "description": "Connect a DeepSeek Harness session to a QQ private chat: bind one session, /new to start a conversation, relay only the final answer, and push from any session with send_qq_message."
   }
 }
