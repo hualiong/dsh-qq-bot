@@ -46,38 +46,39 @@ function fakeCtx({ selection = { next: { provider: 'deepseek-account', model: 'd
   return ctx;
 }
 
-test('modelListText shows provider key, model key, and effort names', async () => {
+test('modelListText shows exactly the input keys: provider/model plus lower-case effort ids', async () => {
   const text = await modelListText(fakeCtx(), 'session-1');
-  assert.match(text, /当前模型：deepseek-account\/deepseek-flash（DeepSeek Flash） · High/u);
-  assert.match(text, /1\. deepseek-account\/deepseek-flash（DeepSeek Flash） · 挡位 Off \/ High {2}← 当前/u);
-  assert.match(text, /2\. zai\/glm-4-flash-250414（GLM-4-Flash） · 无思考挡位/u);
-  assert.match(text, /用法：\/model <供应商>\/<模型> \[挡位\]/u);
+  assert.match(text, /^\*\*可用模型\*\*/u);
+  assert.match(text, /^- \*\*deepseek-account\/deepseek-flash（off \/ high）\*\*$/mu);
+  assert.match(text, /^- zai\/glm-4-flash-250414$/mu);
+  assert.match(text, /^\*\*切换模型\*\*：`\/model <供应商>\/<模型> \[挡位\]`$/mu);
+  assert.doesNotMatch(text, /DeepSeek Flash|← 当前|当前模型/u);
 });
 
-test('modelListText marks the catalog default when the session has no selection', async () => {
+test('modelListText bolds the catalog default when the session has no selection', async () => {
   const ctx = fakeCtx({ selection: null });
   const text = await modelListText(ctx, 'session-1');
-  assert.match(text, /当前模型：deepseek-account\/deepseek-flash（DeepSeek Flash） · High/u);
+  assert.match(text, /^- \*\*deepseek-account\/deepseek-flash（off \/ high）\*\*$/mu);
 });
 
 test('switchModel sends the exact selection request', async () => {
   const ctx = fakeCtx();
   const result = await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash high');
-  assert.equal(result, '已切换：deepseek-account/deepseek-flash · High');
+  assert.equal(result, '已切换：**deepseek-account/deepseek-flash（high）**');
   assert.deepEqual(ctx.calls, [{ sessionId: 'session-1', provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' }]);
 });
 
 test('switchModel reports the effort the Host materialized', async () => {
   const ctx = fakeCtx();
   const result = await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash');
-  assert.equal(result, '已切换：deepseek-account/deepseek-flash · High');
+  assert.equal(result, '已切换：**deepseek-account/deepseek-flash（high）**');
   assert.deepEqual(ctx.calls, [{ sessionId: 'session-1', provider: 'deepseek-account', model: 'deepseek-flash' }]);
 });
 
-test('switchModel accepts effort names case-insensitively and rejects the rest', async () => {
+test('switchModel accepts effort ids and rejects the rest', async () => {
   const ctx = fakeCtx();
-  assert.equal(await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash Off'), '已切换：deepseek-account/deepseek-flash · Off');
-  assert.match(await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash turbo'), /没有挡位「turbo」.*Off \/ High/u);
+  assert.equal(await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash off'), '已切换：**deepseek-account/deepseek-flash（off）**');
+  assert.match(await switchModel(ctx, 'session-1', 'deepseek-account/deepseek-flash turbo'), /没有挡位「turbo」.*off \/ high/u);
   assert.match(await switchModel(ctx, 'session-1', 'zai/glm-4-flash-250414 high'), /不提供思考挡位/u);
   assert.match(await switchModel(ctx, 'session-1', 'nope/model'), /没有找到模型/u);
   assert.match(await switchModel(ctx, 'session-1', 'deepseek-flash'), /格式/u);

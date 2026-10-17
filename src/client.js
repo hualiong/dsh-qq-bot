@@ -40,13 +40,11 @@ window.__ModuleLoader__.load({
       'row.bound': 'QQ 会话',
       'config.title': '允许 Agent 推送 QQ 消息',
       'config.description': '开启后，任意会话的 Agent 都可以调用 send_qq_message，向已绑定的 QQ 聊天推送消息。',
-      'status.unconfigured': '尚未接入 QQ 机器人',
       'status.connected': '已连接',
       'status.disconnected': '未连接',
       'status.account': '机器人',
       'status.binding': '绑定会话',
-      'check': '检查连接',
-      'check.done': '连接检查完成。',
+      'status.unbound': '未绑定',
       'qr.title': '扫码接入',
       'qr.description': '用手机 QQ 扫码，自动创建并接入机器人，无需手动填写 AppID。',
       'qr.start': '扫码接入',
@@ -70,12 +68,9 @@ window.__ModuleLoader__.load({
       'manual.saving': '保存中…',
       'manual.saved': '已保存。',
       'manual.failed': '保存失败',
-      'remove.title': '移除接入',
-      'remove.description': '断开 QQ 机器人并删除本插件保存的凭据与绑定；腾讯侧的机器人不会被删除。',
       'remove.button': '移除接入',
       'remove.confirm': '确认移除？',
       'remove.cancel': '取消',
-      'remove.failed': '移除失败',
     }
     const en = {
       'menu.bind': 'Bind QQ session',
@@ -83,13 +78,11 @@ window.__ModuleLoader__.load({
       'row.bound': 'QQ session',
       'config.title': 'Let Agents push to QQ',
       'config.description': 'When on, any session may call send_qq_message to push a message to the bound QQ chat.',
-      'status.unconfigured': 'No QQ bot configured',
       'status.connected': 'Connected',
       'status.disconnected': 'Disconnected',
       'status.account': 'Bot',
       'status.binding': 'Session',
-      'check': 'Check connection',
-      'check.done': 'Connection check finished.',
+      'status.unbound': 'Not bound',
       'qr.title': 'Connect with QR',
       'qr.description': 'Scan with mobile QQ to create and connect a bot without typing an AppID.',
       'qr.start': 'Scan to connect',
@@ -113,12 +106,9 @@ window.__ModuleLoader__.load({
       'manual.saving': 'Saving…',
       'manual.saved': 'Saved.',
       'manual.failed': 'Save failed',
-      'remove.title': 'Remove bot',
-      'remove.description': 'Disconnect the bot and delete the credentials and binding stored by this plugin. The bot on Tencent side is untouched.',
       'remove.button': 'Remove bot',
       'remove.confirm': 'Confirm removal?',
       'remove.cancel': 'Cancel',
-      'remove.failed': 'Remove failed',
     }
 
     async function callRpc(connection, method, payload = {}, signal) {
@@ -199,8 +189,13 @@ window.__ModuleLoader__.load({
     // --- configuration page styles ------------------------------------------------
 
     const styles = {
-      plain: { display: 'grid', gap: 6 },
-      feature: { display: 'grid', gap: 6 },
+      hint: {
+        margin: 0,
+        fontSize: 12,
+        lineHeight: 1.5,
+        color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
+      },
+      toolSection: { display: 'grid', gap: 6, paddingBottom: 14 },
       toggleRow: {
         display: 'flex',
         justifyContent: 'space-between',
@@ -210,12 +205,6 @@ window.__ModuleLoader__.load({
         lineHeight: 1.5,
         color: 'var(--dsw-alias-label-primary, #e6e6e6)',
       },
-      hint: {
-        margin: 0,
-        fontSize: 12,
-        lineHeight: 1.5,
-        color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
-      },
       section: {
         display: 'grid',
         gap: 6,
@@ -224,15 +213,24 @@ window.__ModuleLoader__.load({
       },
       sectionHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
       sectionTitle: { fontSize: 13, lineHeight: '20px', color: 'var(--dsw-alias-label-primary, #e6e6e6)' },
-      row: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-      meta: {
+      botRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+      botInfo: { display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+      infoRows: { display: 'grid', gap: 2, flex: 1, minWidth: 0 },
+      infoRow: {
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        flexWrap: 'wrap',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        gap: 16,
         fontSize: 13,
-        color: 'var(--dsw-alias-label-secondary, #8a8a8e)',
+        lineHeight: '20px',
       },
+      infoLabel: { color: 'var(--dsw-alias-label-tertiary, #8a8a8e)', flex: 'none' },
+      infoValue: {
+        color: 'var(--dsw-alias-label-primary, #e6e6e6)',
+        textAlign: 'right',
+        wordBreak: 'break-all',
+      },
+      actions: { display: 'flex', alignItems: 'center', gap: 8 },
       dot: (on) => ({
         display: 'inline-block',
         width: 8,
@@ -265,6 +263,7 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = useState(null)
       const [error, setError] = useState(null)
       const [qr, setQr] = useState(null)
+      const [qrError, setQrError] = useState(null)
       const [confirmRemove, setConfirmRemove] = useState(false)
 
       const refresh = useCallback(() => callRpc(connection, 'connection.status')
@@ -286,19 +285,25 @@ window.__ModuleLoader__.load({
           try {
             const next = await callRpc(connection, 'provision.poll', { attemptId: qr.attemptId })
             if (stopped) return
-            setQr(next)
             if (next.status === 'connected') {
               clearInterval(timer)
               setQr(null)
+              setQrError(null)
               setNotice(t('qr.connected'))
               refresh()
             } else if (['failed', 'cancelled', 'expired'].includes(next.status)) {
               clearInterval(timer)
-              if (next.status === 'failed') setError(`${t('qr.failed')}：${next.error ?? ''}`)
+              setQr(null)
+              if (next.status === 'failed') setQrError(`${t('qr.failed')}：${next.error ?? ''}`)
+            } else {
+              setQr(next)
             }
           } catch (failure) {
             clearInterval(timer)
-            if (!stopped) setError(failure.message)
+            if (!stopped) {
+              setQr(null)
+              setQrError(failure.message)
+            }
           }
         }, QR_POLL_MS)
         return () => { stopped = true; clearInterval(timer) }
@@ -316,14 +321,25 @@ window.__ModuleLoader__.load({
           .finally(() => setBusy(false))
       }
 
-      const startQr = () => run(async () => {
+      const startQr = () => {
+        setBusy(true)
+        setError(null)
+        setNotice(null)
+        setQrError(null)
         setConfirmRemove(false)
-        setQr(await callRpc(connection, 'provision.begin', {}))
-      })
+        callRpc(connection, 'provision.begin', {})
+          .then((next) => {
+            if (next.status === 'failed') setQrError(`${t('qr.failed')}：${next.error ?? ''}`)
+            else setQr(next)
+          })
+          .catch((failure) => setQrError(failure.message))
+          .finally(() => setBusy(false))
+      }
 
       const cancelQr = () => {
         if (qr?.attemptId) callRpc(connection, 'provision.cancel', { attemptId: qr.attemptId }).catch(() => undefined)
         setQr(null)
+        setQrError(null)
       }
 
       const save = () => run(async () => {
@@ -347,12 +363,6 @@ window.__ModuleLoader__.load({
         setError(null)
         setNotice(null)
       }
-
-      const check = () => run(async () => {
-        const next = await callRpc(connection, 'bot.reconnect', {})
-        setStatus(next)
-        setNotice(t('check.done'))
-      })
 
       const remove = () => run(async () => {
         const next = await callRpc(connection, 'bot.delete', {})
@@ -391,75 +401,58 @@ window.__ModuleLoader__.load({
         saving: t('manual.saving'),
       }
 
-      const formBody = React.createElement(SettingsForm, {
-        labels,
-        state: formState,
-        onSave: save,
-        onDiscard: discard,
-      }, [
-        React.createElement('div', { key: 'feature', style: styles.feature }, [
-          React.createElement('label', { key: 'toggle', style: styles.toggleRow }, [
-            React.createElement('span', { key: 'label' }, t('config.title')),
-            React.createElement(Switch, {
-              key: 'switch',
-              checked: toolEnabled,
-              disabled: !switchReady,
-              label: t('config.title'),
-              onChange: (next) => {
-                const write = form?.mutate?.([{ op: 'set', path: ['toolEnabled'], value: next }], snapshot?.revision)
-                if (write?.catch) write.catch(() => { /* a refused write leaves the switch where it was */ })
-              },
-            }),
-          ]),
-          React.createElement('p', { key: 'hint', style: styles.hint }, t('config.description')),
+      const toolSection = React.createElement('div', { key: 'tool', style: styles.toolSection }, [
+        React.createElement('label', { key: 'row', style: styles.toggleRow }, [
+          React.createElement('span', { key: 'label' }, t('config.title')),
+          React.createElement(Switch, {
+            key: 'switch',
+            checked: toolEnabled,
+            disabled: !switchReady,
+            label: t('config.title'),
+            onChange: (next) => {
+              const write = form?.mutate?.([{ op: 'set', path: ['toolEnabled'], value: next }], snapshot?.revision)
+              if (write?.catch) write.catch(() => { /* a refused write leaves the switch where it was */ })
+            },
+          }),
         ]),
-        React.createElement(SettingsValueField, {
-          key: 'appId',
-          id: 'dsh-qq-lite-app-id',
-          label: t('manual.appId'),
-          hint: t('manual.appIdHint'),
-          placeholder: t('manual.appIdPlaceholder'),
-          disabled: busy,
-          text: appId,
-          onEdit: (text) => { setAppId(text); setNotice(null) },
-        }),
-        React.createElement(SettingsSecretField, {
-          key: 'secret',
-          id: 'dsh-qq-lite-app-secret',
-          label: t('manual.secret'),
-          hint: t('manual.secretHint'),
-          disabled: busy,
-          text: secret,
-          configured: status?.secretConfigured === true,
-          stateLabel: status?.secretConfigured ? t('manual.secretConfigured') : t('manual.secretUnconfigured'),
-          onEdit: (text) => { setSecret(text); setNotice(null) },
-        }),
-        React.createElement(SettingsValueField, {
-          key: 'workspace',
-          id: 'dsh-qq-lite-workspace',
-          label: t('manual.workspace'),
-          hint: t('manual.workspaceHint'),
-          placeholder: t('manual.workspacePlaceholder'),
-          disabled: busy,
-          text: workspace,
-          onEdit: (text) => { setWorkspace(text); setNotice(null) },
-        }),
+        React.createElement('p', { key: 'hint', style: styles.hint }, t('config.description')),
       ])
 
-      return React.createElement('div', { style: { display: 'grid', gap: 0 } }, [
-        React.createElement('div', { key: 'status', style: { ...styles.section, borderTop: 'none', paddingTop: 0 } }, [
-          React.createElement('div', { key: 'meta', style: styles.meta }, [
-            React.createElement('span', { key: 'dot', style: styles.dot(connected) }),
-            React.createElement('span', { key: 'text' }, configured
-              ? `${t('status.account')} ${status?.appIdMasked ?? ''} · ${connected ? t('status.connected') : t('status.disconnected')}`
-              : t('status.unconfigured')),
-            status?.sessionId ? React.createElement('span', { key: 'bind' }, `${t('status.binding')} ${status.sessionId}`) : null,
+      const toolStatus = React.createElement('div', { key: 'status', style: styles.section }, [
+        React.createElement('div', { key: 'bot', style: styles.botRow }, [
+          React.createElement('div', { key: 'info', style: styles.botInfo }, [
+            React.createElement('span', {
+              key: 'dot',
+              style: styles.dot(connected),
+              title: connected ? t('status.connected') : t('status.disconnected'),
+              'aria-label': connected ? t('status.connected') : t('status.disconnected'),
+            }),
+            React.createElement('div', { key: 'rows', style: styles.infoRows }, [
+              React.createElement('div', { key: 'account', style: styles.infoRow }, [
+                React.createElement('span', { key: 'label', style: styles.infoLabel }, t('status.account')),
+                React.createElement('span', { key: 'value', style: styles.infoValue }, status?.appIdMasked ?? ''),
+              ]),
+              React.createElement('div', { key: 'binding', style: styles.infoRow }, [
+                React.createElement('span', { key: 'label', style: styles.infoLabel }, t('status.binding')),
+                React.createElement('span', { key: 'value', style: styles.infoValue }, status?.sessionId ?? t('status.unbound')),
+              ]),
+            ]),
           ]),
-          status?.lastError ? React.createElement('p', { key: 'last', style: styles.error }, status.lastError) : null,
-          notice ? React.createElement('p', { key: 'notice', style: styles.notice }, notice) : null,
-          configured ? React.createElement('div', { key: 'check', style: styles.row },
-            React.createElement(Button, { onClick: check, disabled: busy }, t('check'))) : null,
+          React.createElement('div', { key: 'actions', style: styles.actions },
+            confirmRemove
+              ? [
+                React.createElement(Button, { key: 'confirm', variant: 'primary', onClick: remove, disabled: busy }, t('remove.confirm')),
+                React.createElement(Button, { key: 'cancel', onClick: () => setConfirmRemove(false), disabled: busy }, t('remove.cancel')),
+              ]
+              : React.createElement(Button, { key: 'remove', onClick: () => setConfirmRemove(true), disabled: busy }, t('remove.button'))),
         ]),
+        status?.lastError ? React.createElement('p', { key: 'last', style: styles.error }, status.lastError) : null,
+        error ? React.createElement('p', { key: 'error', style: styles.error }, error) : null,
+        notice ? React.createElement('p', { key: 'notice', style: styles.notice }, notice) : null,
+      ])
+
+      const addPage = React.createElement('div', { key: 'page', style: { display: 'grid', gap: 0 } }, [
+        toolSection,
 
         React.createElement('div', { key: 'qr', style: styles.section }, [
           React.createElement('div', { key: 'head', style: styles.sectionHead }, [
@@ -469,28 +462,57 @@ window.__ModuleLoader__.load({
           ]),
           React.createElement('p', { key: 'desc', style: styles.hint }, t('qr.description')),
           qrSource ? React.createElement('img', { key: 'img', src: qrSource, alt: t('qr.title'), style: styles.qr }) : null,
-          qr ? React.createElement('p', { key: 'pending', style: qr.status === 'failed' ? styles.error : styles.hint },
-            qr.status === 'failed' ? `${t('qr.failed')}：${qr.error ?? ''}` : t('qr.pending')) : null,
+          qrError ? React.createElement('p', { key: 'error', style: styles.error }, qrError)
+            : qr ? React.createElement('p', { key: 'pending', style: styles.hint }, t('qr.pending')) : null,
         ]),
 
-        React.createElement('div', { key: 'form', style: styles.section }, [
+        React.createElement('div', { key: 'manual', style: styles.section }, [
           React.createElement('span', { key: 'title', style: styles.sectionTitle }, t('manual.title')),
           React.createElement('p', { key: 'desc', style: styles.hint }, t('manual.description')),
-          formBody,
+          React.createElement(SettingsForm, {
+            labels,
+            state: formState,
+            onSave: save,
+            onDiscard: discard,
+          }, [
+            React.createElement(SettingsValueField, {
+              key: 'appId',
+              id: 'dsh-qq-lite-app-id',
+              label: t('manual.appId'),
+              hint: t('manual.appIdHint'),
+              placeholder: t('manual.appIdPlaceholder'),
+              disabled: busy,
+              text: appId,
+              onEdit: (text) => { setAppId(text); setNotice(null) },
+            }),
+            React.createElement(SettingsSecretField, {
+              key: 'secret',
+              id: 'dsh-qq-lite-app-secret',
+              label: t('manual.secret'),
+              hint: t('manual.secretHint'),
+              disabled: busy,
+              text: secret,
+              configured: status?.secretConfigured === true,
+              stateLabel: status?.secretConfigured ? t('manual.secretConfigured') : t('manual.secretUnconfigured'),
+              onEdit: (text) => { setSecret(text); setNotice(null) },
+            }),
+            React.createElement(SettingsValueField, {
+              key: 'workspace',
+              id: 'dsh-qq-lite-workspace',
+              label: t('manual.workspace'),
+              hint: t('manual.workspaceHint'),
+              placeholder: t('manual.workspacePlaceholder'),
+              disabled: busy,
+              text: workspace,
+              onEdit: (text) => { setWorkspace(text); setNotice(null) },
+            }),
+          ]),
         ]),
-
-        configured ? React.createElement('div', { key: 'remove', style: styles.section }, [
-          React.createElement('span', { key: 'title', style: styles.sectionTitle }, t('remove.title')),
-          React.createElement('p', { key: 'desc', style: styles.hint }, t('remove.description')),
-          React.createElement('div', { key: 'actions', style: styles.row },
-            confirmRemove
-              ? [
-                React.createElement(Button, { key: 'confirm', variant: 'primary', onClick: remove, disabled: busy }, t('remove.confirm')),
-                React.createElement(Button, { key: 'cancel', onClick: () => setConfirmRemove(false), disabled: busy }, t('remove.cancel')),
-              ]
-              : React.createElement(Button, { key: 'remove', onClick: () => setConfirmRemove(true), disabled: busy }, t('remove.button'))),
-        ]) : null,
       ])
+
+      return configured
+        ? React.createElement('div', { style: { display: 'grid', gap: 0 } }, [toolSection, toolStatus])
+        : addPage
     }
 
     // --- plugin -------------------------------------------------------------------

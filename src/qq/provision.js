@@ -1,8 +1,15 @@
 // QR provisioning: one active QR-login attempt at a time, polled by the plugin
 // page. The SDK owns the wire protocol; this module only tracks state and turns
 // the connect URL into a PNG data URL.
-import QRCode from 'qrcode';
+import * as QRCodeModule from 'qrcode';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
+
+// qrcode is CommonJS whose module.exports is replaced with ./server after
+// evaluation. DSH's Host module replacement can leave that default export
+// empty, so use the named exports (Node detects the re-export statically).
+const QRCode = typeof QRCodeModule.toDataURL === 'function'
+  ? QRCodeModule
+  : QRCodeModule.default ?? QRCodeModule;
 
 const POLL_MS = 1000;
 const TTL_MS = 5 * 60_000;

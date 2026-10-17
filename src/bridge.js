@@ -6,12 +6,14 @@ import { askSession, createSession, turnFailureText, userFacingError } from './d
 import { modelListText, switchModel } from './model-command.js';
 
 const HELP = [
-  'QQ机器人命令：',
-  ...COMMANDS.map(({ command, desc }) => `${command.padEnd(9)}${desc}`),
-  '在 QQ 输入 / 可打开指令面板；直接发送文字即可与绑定的 DSH 会话对话。',
+  '**QQ 机器人命令**',
+  '',
+  ...COMMANDS.map(({ command, desc }) => `- \`${command}\` ${desc}`),
+  '',
+  '在 QQ 输入 `/` 可打开指令面板；直接发送文字即可与绑定的 DSH 会话对话。',
 ].join('\n');
 
-const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定为 QQ 会话」，或发送 /new 新建一个。';
+const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 /new 新建一个。';
 
 // QQ c2c passive replies stay valid for 60 minutes (4 replies per msg_id);
 // after that a reply must be proactive (no msgId). 55 minutes keeps a margin.
@@ -44,6 +46,12 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
 
   const send = (message, text) => runtime.sendText(message.replyTarget, text).catch((error) => {
     logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
+  });
+
+  // Command output is markdown too; a platform rejection degrades to plain text.
+  const sendRich = (message, text) => runtime.sendMarkdown(message.replyTarget, text).catch(async (error) => {
+    logger.warn?.('[dsh-qq-lite] Markdown 回复失败，改用纯文本：', error?.message ?? error);
+    await send(message, text);
   });
 
   const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
@@ -87,47 +95,56 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   }
 
   async function command(message, name, args, startedAt) {
-    if (name === '/help') return send(message, HELP);
+    if (name === '/help') return sendRich(message, HELP);
     if (name === '/status') {
       const status = runtime.status;
-      return send(message, [
-        `QQ 连接：${status.ready ? '已连接' : `未连接（${status.state}）`}`,
-        `绑定会话：${state.sessionId ?? '无'}`,
-        `默认工作区：${settings.workspace}`,
-        stats ? `事件流：${stats.count}${stats.lastType ? `（最近 ${stats.lastType}）` : ''}` : null,
-        status.lastError ? `最近错误：${status.lastError}` : null,
+      return sendRich(message, [
+        '**QQ 机器人状态**',
+        '',
+        `- 连接：${status.ready ? '**已连接**' : `未连接（\`${status.state}\`）`}`,
+        `- 绑定会话：\`${state.sessionId ?? '无'}\``,
+        `- 默认工作区：\`${settings.workspace}\``,
+        stats ? `- 事件流：${stats.count}${stats.lastType ? `（最近 \`${stats.lastType}\`）` : ''}` : null,
+        status.lastError ? `- 最近错误：${status.lastError}` : null,
       ].filter(Boolean).join('\n'));
     }
     if (name === '/new') {
-      if (!runtime.ready) return send(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
+      if (!runtime.ready) return sendRich(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
       let sessionId;
       try {
         sessionId = await createSession(ctx, settings.workspace);
         await state.setSession(sessionId);
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 新建会话失败：', error?.message ?? error);
-        return send(message, userFacingError(error));
+        return sendRich(message, userFacingError(error));
       }
       // `/new <message>` starts the first turn immediately, which also makes the
       // row appear in DSH's sidebar (a blank row stays hidden).
       if (args) return answer(message, sessionId, args, startedAt);
-      return send(message, `已新建会话并绑定到本聊天。\n会话：${sessionId}\n工作区：${settings.workspace}\n（侧栏会在本会话第一条消息开始后显示这一行）`);
+      return sendRich(message, [
+        '已新建会话并绑定到本聊天。',
+        '',
+        `- 会话：\`${sessionId}\``,
+        `- 工作区：\`${settings.workspace}\``,
+        '',
+        '侧栏会在本会话第一条消息开始后显示这一行。',
+      ].join('\n'));
     }
     if (name === '/model') {
       const sessionId = state.sessionId;
-      if (!sessionId) return send(message, NO_BINDING);
+      if (!sessionId) return sendRich(message, NO_BINDING);
       try {
-        return send(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
+        return sendRich(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 切换模型失败：', error?.message ?? error);
-        return send(message, userFacingError(error));
+        return sendRich(message, userFacingError(error));
       }
     }
     if (name === '/unbind') {
       await state.setSession(null);
-      return send(message, '已解除 QQ 绑定。');
+      return sendRich(message, '已解除 QQ 绑定。');
     }
-    return send(message, `未知命令：${name}\n\n${HELP}`);
+    return sendRich(message, `未知命令：\`${name}\`\n\n${HELP}`);
   }
 
   return {

@@ -1,5 +1,7 @@
 // /model support: read the Host model catalog and switch one session's model,
 // mirroring the chat-box picker (provider key, model key, reasoning efforts).
+// Everything printed is exactly what /model accepts: provider/model keys and
+// lower-case effort ids, so a user can copy a line back without translating it.
 import { sessionService } from './dsh.js';
 
 function currentSelection(catalog, projection) {
@@ -10,17 +12,8 @@ function effortsOf(model) {
   return model?.reasoning?.efforts ?? [];
 }
 
-function effortName(model, effortId) {
-  if (!effortId) return null;
-  const effort = effortsOf(model).find((candidate) => candidate.id === effortId);
-  return effort?.name ?? effortId;
-}
-
-function effortListText(model) {
-  const efforts = effortsOf(model);
-  if (efforts.length === 0) return '无思考挡位';
-  const names = [...new Set(efforts.map((effort) => effort.name ?? effort.id))];
-  return `挡位 ${names.join(' / ')}`;
+function effortIds(model) {
+  return [...new Set(effortsOf(model).map((effort) => effort.id))];
 }
 
 function findModel(catalog, providerId, modelId) {
@@ -29,12 +22,8 @@ function findModel(catalog, providerId, modelId) {
   return group && model ? { group, model } : null;
 }
 
-function selectionText(catalog, selection) {
-  if (!selection) return '未知';
-  const found = findModel(catalog, selection.provider, selection.model);
-  const effort = found ? effortName(found.model, selection.reasoningEffort) : selection.reasoningEffort;
-  const name = found?.model?.name && found.model.name !== selection.model ? `（${found.model.name}）` : '';
-  return `${selection.provider}/${selection.model}${name}${effort ? ` · ${effort}` : ''}`;
+function selectionLabel(provider, model, effortId) {
+  return `${provider}/${model}${effortId ? `（${effortId}）` : ''}`;
 }
 
 export async function modelSnapshot(ctx, sessionId) {
@@ -46,25 +35,27 @@ export async function modelSnapshot(ctx, sessionId) {
     const projected = await controller.projections({ sessionId }, new AbortController().signal);
     projection = projected?.values?.modelSelection ?? null;
   } catch {
-    // A missing projection only costs the "current" marker.
+    // A missing projection only costs the bold "current" row.
   }
   return { catalog, current: currentSelection(catalog, projection) };
 }
 
 export async function modelListText(ctx, sessionId) {
   const { catalog, current } = await modelSnapshot(ctx, sessionId);
-  const lines = [`当前模型：${selectionText(catalog, current)}`, '可用模型：'];
+  const lines = ['**可用模型**'];
   let index = 0;
   for (const group of catalog?.groups ?? []) {
     for (const model of group.models ?? []) {
       index += 1;
-      const open = current && current.provider === group.id && current.model === model.id;
-      const name = model.name && model.name !== model.id ? `（${model.name}）` : '';
-      lines.push(`${index}. ${group.id}/${model.id}${name} · ${effortListText(model)}${open ? '  ← 当前' : ''}`);
+      const ids = effortIds(model);
+      const efforts = ids.length > 0 ? `（${ids.join(' / ')}）` : '';
+      const isCurrent = current && current.provider === group.id && current.model === model.id;
+      const line = `${group.id}/${model.id}${efforts}`;
+      lines.push(`- ${isCurrent ? `**${line}**` : line}`);
     }
   }
-  if (index === 0) lines.push('（没有可用模型，请先在 DSH 设置里配置供应商）');
-  lines.push('用法：/model <供应商>/<模型> [挡位]');
+  if (index === 0) lines.push('- 没有可用模型，请先在 DSH 设置里配置供应商。');
+  lines.push('', '**切换模型**：`/model <供应商>/<模型> [挡位]`');
   return lines.join('\n');
 }
 
@@ -75,7 +66,7 @@ export async function switchModel(ctx, sessionId, args) {
   const [reference, ...rest] = target.split(/\s+/u);
   const slash = reference.indexOf('/');
   if (slash <= 0 || slash === reference.length - 1) {
-    return '格式：/model <供应商>/<模型> [挡位]';
+    return '格式：`/model <供应商>/<模型> [挡位]`';
   }
   const providerId = reference.slice(0, slash);
   const modelId = reference.slice(slash + 1);
@@ -89,16 +80,15 @@ export async function switchModel(ctx, sessionId, args) {
   if (rest.length > 0) {
     const wanted = rest.join(' ').trim();
     const lower = wanted.toLowerCase();
-    const efforts = effortsOf(model);
-    const effort = efforts.find((candidate) => candidate.id.toLowerCase() === lower
-      || (candidate.name ?? '').toLowerCase() === lower);
+    const ids = effortIds(model);
+    const effort = ids.find((id) => id === wanted)
+      ?? ids.find((id) => id.toLowerCase() === lower);
     if (!effort) {
-      const available = efforts.map((candidate) => candidate.name ?? candidate.id).join(' / ');
-      return effortListText(model) === '无思考挡位'
+      return ids.length === 0
         ? `模型 ${reference} 不提供思考挡位。`
-        : `模型 ${reference} 没有挡位「${wanted}」。可用：${available}`;
+        : `模型 ${reference} 没有挡位「${wanted}」。可用：${ids.join(' / ')}`;
     }
-    reasoningEffort = effort.id;
+    reasoningEffort = effort;
   }
 
   const result = await sessionService(ctx).selectModel({
@@ -109,6 +99,5 @@ export async function switchModel(ctx, sessionId, args) {
   });
   // The Host materializes the default effort, so report what it actually chose.
   const selected = result?.selected ?? { provider: group.id, model: model.id, reasoningEffort };
-  const effort = effortName(model, selected.reasoningEffort);
-  return `已切换：${selected.provider}/${selected.model}${effort ? ` · ${effort}` : ''}`;
+  return `已切换：**${selectionLabel(selected.provider, selected.model, selected.reasoningEffort)}**`;
 }

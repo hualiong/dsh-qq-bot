@@ -89,42 +89,43 @@ test('other users, group chats, bots, and redelivered ids are ignored', async (t
   assert.equal(sent.length, 1);
 });
 
-test('/help and /status answer without touching the bound session', async (t) => {
-  const { sent, bridge, message } = await fixture(t);
+test('/help and /status answer as markdown without touching the bound session', async (t) => {
+  const { markdown, bridge, message } = await fixture(t);
   await bridge.accept(message({ messageId: 'm-1', content: '/help' }));
-  assert.match(sent[0], /\/new/);
+  assert.match(markdown[0], /^(\*\*QQ 机器人命令\*\*)/u);
+  assert.match(markdown[0], /`\/new`/u);
   await bridge.accept(message({ messageId: 'm-2', content: '/status' }));
-  assert.match(sent[1], /QQ 连接：已连接/);
-  assert.match(sent[1], /绑定会话：无/);
+  assert.match(markdown[1], /连接：\*\*已连接\*\*/u);
+  assert.match(markdown[1], /绑定会话：`无`/u);
 });
 
 test('/new creates a session in the default workspace, binds it, and unbind clears it', async (t) => {
-  const { state, sent, created, bridge, message } = await fixture(t);
+  const { state, markdown, created, bridge, message } = await fixture(t);
   await bridge.accept(message({ messageId: 'm-1', content: '/new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.equal(state.sessionId, 'session-new');
-  assert.match(sent[0], /session-new/);
+  assert.match(markdown[0], /会话：`session-new`/u);
 
   await bridge.accept(message({ messageId: 'm-2', content: '/unbind' }));
   assert.equal(state.sessionId, null);
 });
 
 test('command panel aliases work as the whole message', async (t) => {
-  const { sent, created, markdown, bridge, message } = await fixture(t);
+  const { markdown, created, bridge, message } = await fixture(t);
 
   await bridge.accept(message({ messageId: 'm-1', content: 'new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
-  assert.match(sent[0], /session-new/);
+  assert.match(markdown[0], /session-new/u);
 
   await bridge.accept(message({ messageId: 'm-2', content: '/new' }));
   assert.equal(created.length, 2, 'the slash form still works');
 
   await bridge.accept(message({ messageId: 'm-3', content: 'status' }));
-  assert.match(sent.at(-1), /QQ 连接：已连接/);
+  assert.match(markdown.at(-1), /连接：\*\*已连接\*\*/u);
 
   // A word that merely starts with an alias is an ordinary prompt.
   await bridge.accept(message({ messageId: 'm-4', content: 'help me please' }));
-  assert.deepEqual(markdown, ['Answer']);
+  assert.deepEqual(markdown.at(-1), 'Answer');
 });
 
 test('an alias followed by text stays a prompt instead of running the command', async (t) => {
@@ -161,6 +162,13 @@ test('a failed markdown reply falls back to plain text once', async (t) => {
   await bridge.accept(message());
   assert.deepEqual(markdown, [], 'markdown delivery failed');
   assert.deepEqual(sent, ['Answer'], 'the answer went out as plain text');
+});
+
+test('a failed markdown command reply falls back to plain text once', async (t) => {
+  const { sent, bridge, message } = await fixture(t, { failMarkdown: true });
+  await bridge.accept(message({ messageId: 'm-1', content: '/help' }));
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /QQ 机器人命令/u);
 });
 
 test('a reply after the passive window becomes proactive', () => {
