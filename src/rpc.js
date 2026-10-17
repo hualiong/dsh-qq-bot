@@ -4,6 +4,7 @@ import { sessionExists } from './dsh.js';
 
 const CHANNEL = 'dsh-qq-lite';
 const PATH = `/api/${CHANNEL}`;
+const VERSION = '0.1.0'; // keep in step with package.json; shown in the status payload
 
 function reply(rpcId, result) {
   const value = result.ok === false
@@ -25,6 +26,7 @@ export function installRpc(ctx, holder) {
       return {
         ok: true,
         value: {
+          version: VERSION,
           connected: status.ready === true,
           state: status.state ?? 'stopped',
           lastError: status.lastError ?? null,

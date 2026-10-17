@@ -46,6 +46,7 @@ test('status reports connection, binding, and workspace', async () => {
   const result = await call('connection.status', {});
   assert.equal(result.ok, true);
   assert.deepEqual(result.value, {
+    version: '0.1.0',
     connected: true,
     state: 'connected',
     lastError: null,
