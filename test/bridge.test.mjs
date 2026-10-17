@@ -112,14 +112,14 @@ test('/new creates a session in the default workspace, binds it, and unbind clea
 test('command panel aliases work as the whole message', async (t) => {
   const { sent, created, markdown, bridge, message } = await fixture(t);
 
-  await bridge.accept(message({ messageId: 'm-1', content: '新建会话' }));
+  await bridge.accept(message({ messageId: 'm-1', content: 'new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.match(sent[0], /session-new/);
 
   await bridge.accept(message({ messageId: 'm-2', content: '/new' }));
   assert.equal(created.length, 2, 'the slash form still works');
 
-  await bridge.accept(message({ messageId: 'm-3', content: '连接状态' }));
+  await bridge.accept(message({ messageId: 'm-3', content: 'status' }));
   assert.match(sent.at(-1), /QQ 连接：已连接/);
 
   // A word that merely starts with an alias is an ordinary prompt.
@@ -147,10 +147,12 @@ test('/new uses the registered workspace when the directory is known', async (t)
 });
 
 
-test('a slash-prefixed panel name is still the command', async (t) => {
-  const { created, bridge, message } = await fixture(t);
-  await bridge.accept(message({ messageId: 'm-1', content: '/新建会话' }));
+test('/new with a first message starts the session turn immediately', async (t) => {
+  const { created, markdown, state, bridge, message } = await fixture(t);
+  await bridge.accept(message({ messageId: 'm-1', content: '/new 你好' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
+  assert.equal(state.sessionId, 'session-new');
+  assert.deepEqual(markdown, ['Answer']);
 });
 
 test('a failed markdown reply falls back to plain text once', async (t) => {

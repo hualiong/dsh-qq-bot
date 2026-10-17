@@ -11,11 +11,13 @@ const REQUEST_PREFIX = 'qq-lite';
 
 // This plugin's fiber does not inject the session services, so they are read
 // through ctx.get (property access would throw "without inject").
-function sessions(ctx) {
+export function sessionService(ctx) {
   const controller = ctx.get?.('sessionController');
   if (!controller) throw new Error('sessionController 服务不可用（需要 DSH 会话功能）。');
   return controller;
 }
+
+const sessions = sessionService;
 
 export async function createSession(ctx, cwd) {
   await mkdir(cwd, { recursive: true });
@@ -102,6 +104,7 @@ export function userFacingError(error) {
   if (code === 'reply-timeout') return '等待回复超时：任务可能仍在后台运行，稍后可在 DSH 界面查看结果。';
   if (code === 'session/not-found') return '绑定的会话已不存在或已归档。请在侧栏会话菜单重新绑定，或发送 /new 新建一个会话。';
   if (code === 'session/agent-busy') return '绑定的会话正忙，请稍后再试。';
+  if (code === 'session/model-unavailable') return '该模型当前不可用，请发送 /model 重新选择。';
   return `处理失败：${error?.message ?? String(error)}`;
 }
 

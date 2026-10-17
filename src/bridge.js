@@ -3,6 +3,7 @@
 // answer order matches message order.
 import { ALIASES, COMMANDS } from './commands.js';
 import { askSession, createSession, turnFailureText, userFacingError } from './dsh.js';
+import { modelListText, switchModel } from './model-command.js';
 
 const HELP = [
   'QQ机器人命令：',
@@ -21,19 +22,20 @@ export function replyTargetFor(replyTarget, elapsedMs) {
   return { scope: replyTarget.scope, targetId: replyTarget.targetId };
 }
 
-// A panel item's name is filled into the chat box, usually with the "/" the QQ
-// client adds for command items, so it acts as a command — but only when it is
-// the whole message: "解除绑定 是什么意思" is a question, not an unbind. Slash
-// commands keep the first-word rule.
+// A panel item's name is filled into the chat box with the "/" the QQ client
+// shows for command items, so "/new" and "new" are the same command, and only
+// the slash form may carry arguments ("/new 你好"). A bare alias followed by
+// text ("new 你好") stays a prompt: the user's sentence must not be eaten.
 function commandOf(text) {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const word = trimmed.split(/\s+/u, 1)[0];
+  const [word, ...rest] = trimmed.split(/\s+/u);
   if (trimmed.startsWith('/')) {
-    const bare = word.replace(/^\/+/u, '');
-    return ALIASES.get(bare) ?? word.toLowerCase();
+    const bare = word.replace(/^\/+/u, '').toLowerCase();
+    return { name: ALIASES.get(bare) ?? word.toLowerCase(), args: rest.join(' ') };
   }
-  return ALIASES.get(trimmed) ?? null;
+  const name = ALIASES.get(trimmed.toLowerCase());
+  return name ? { name, args: '' } : null;
 }
 
 export function createBridge({ runtime, state, ctx, settings, logger = console, stats }) {
@@ -84,7 +86,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     }
   }
 
-  async function command(message, name) {
+  async function command(message, name, args, startedAt) {
     if (name === '/help') return send(message, HELP);
     if (name === '/status') {
       const status = runtime.status;
@@ -98,14 +100,26 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     }
     if (name === '/new') {
       if (!runtime.ready) return send(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
+      let sessionId;
       try {
-        const sessionId = await createSession(ctx, settings.workspace);
+        sessionId = await createSession(ctx, settings.workspace);
         await state.setSession(sessionId);
-        // DSH hides a blank row until its first turn starts; say so instead of
-        // letting /new look broken.
-        return send(message, `已新建会话并绑定到本聊天。\n会话：${sessionId}\n工作区：${settings.workspace}\n（侧栏会在本会话第一条消息开始后显示这一行）`);
       } catch (error) {
         logger.warn?.('[dsh-qq-lite] 新建会话失败：', error?.message ?? error);
+        return send(message, userFacingError(error));
+      }
+      // `/new <message>` starts the first turn immediately, which also makes the
+      // row appear in DSH's sidebar (a blank row stays hidden).
+      if (args) return answer(message, sessionId, args, startedAt);
+      return send(message, `已新建会话并绑定到本聊天。\n会话：${sessionId}\n工作区：${settings.workspace}\n（侧栏会在本会话第一条消息开始后显示这一行）`);
+    }
+    if (name === '/model') {
+      const sessionId = state.sessionId;
+      if (!sessionId) return send(message, NO_BINDING);
+      try {
+        return send(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
+      } catch (error) {
+        logger.warn?.('[dsh-qq-lite] 切换模型失败：', error?.message ?? error);
         return send(message, userFacingError(error));
       }
     }
@@ -135,7 +149,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         // redeliver a message, and a redelivered prompt must not run twice.
         await state.markSeen(messageId);
         const cmd = commandOf(text);
-        if (cmd) return command(message, cmd);
+        if (cmd) return command(message, cmd.name, cmd.args, startedAt);
         // Capture the binding now: /new or a rebind while this message waits
         // in the queue must not retarget a message the user already sent.
         const sessionId = state.sessionId;

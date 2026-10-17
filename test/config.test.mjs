@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { resolveSettings } from '../src/config.js';
+import { deriveBotIdentity, loadOwnConfig, maskAppId, removeOwnConfig, resolveSettings, saveOwnConfig } from '../src/config.js';
 
 async function fixture(t) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-config-'));
@@ -61,4 +61,38 @@ test('overrides win and a missing integration falls back to $DSH_HOME/im', async
   const fallback = await resolveSettings({});
   assert.equal(fallback.appId, null);
   assert.equal(fallback.workspace, join(home, 'im'));
+});
+
+test('the plugin store wins over row config and the dsh-im fallback', async (t) => {
+  const home = await fixture(t);
+  const own = {
+    version: 1,
+    appId: '1111111111',
+    secretRef: deriveBotIdentity('1111111111').secretRef,
+    workspace: join(home, 'own-ws'),
+    ownerOpenId: 'openid-own',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+  await saveOwnConfig({}, own);
+  const loaded = await loadOwnConfig({});
+  const { version: _version, ...expected } = own;
+  assert.deepEqual(loaded, expected);
+
+  const settings = await resolveSettings({ workspace: 'C:\\row-ws', ownerOpenId: 'row-owner' }, loaded);
+  assert.equal(settings.appId, '1111111111');
+  assert.equal(settings.secretRef, own.secretRef);
+  assert.equal(settings.workspace, join(home, 'own-ws'));
+  assert.equal(settings.ownerOpenId, 'openid-own');
+
+  await removeOwnConfig({});
+  assert.equal(await loadOwnConfig({}), null);
+});
+
+test('the identity derivation matches dsh-im and masks the app id', () => {
+  const identity = deriveBotIdentity('1905390910');
+  assert.match(identity.botId, /^qq_[a-f0-9]{24}$/u);
+  assert.equal(identity.secretRef, `DSH_QQBOT_APP_SECRET_${identity.botId.slice(3).toUpperCase()}`);
+  assert.equal(maskAppId('1905390910'), '190•••');
+  assert.equal(maskAppId('abc'), 'abc•••');
+  assert.equal(maskAppId(null), null);
 });

@@ -1,18 +1,21 @@
 # Third-party notices
 
 `dsh-qq-lite` is a trimmed derivative of [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)
-(version 4.39.0), which is MIT licensed. Files that carry ported code say so in
-their header:
+(MIT). Files that carry ported code say so in their header:
 
 | File | Origin |
 | --- | --- |
 | `src/qq/reply.js` | `src/channels/qq/markdown-reply.mjs` and `src/channels/shared/markdown-chunks.mjs` (unchanged behaviour: chunking, passive reply caps, markdown-to-plain fallback). i18n and the `ApiError` import were replaced. |
-| `src/qq/tracker.js` | `src/channels/shared/harness-client.mjs` — `textFromHarnessContent`, `AssistantTextAccumulator`, `accumulateFinalAssistantText`, and the turn-ownership/final-answer part of `HarnessReplyTracker`. |
-| `test/reply.test.mjs` | `test/channels/qq/markdown-reply.test.mjs` |
-| `test/tracker.test.mjs` | `test/qq-final-answer.test.mjs` and the transferable cases of `test/harness-reply-tracker.test.mjs` |
+| `src/qq/tracker.js` | `src/channels/shared/harness-client.mjs` — final-answer extraction and turn ownership. |
+| `src/config.js` (identity helpers) | `src/channels/qq/config-store.mjs` — botId/secretRef derivation and AppID masking, so dsh-im-written secrets stay interchangeable. |
+| `test/reply.test.mjs`, `test/tracker.test.mjs` | The matching upstream test suites. |
 
-Everything else (Host wiring, state, bridge, runtime, RPC, tools, client) is
-written for this plugin.
+## Runtime dependencies (declared, not vendored)
+
+- `@tencent-connect/qqbot-nodejs` (npm) — QQ Bot WebSocket/HTTP client.
+- `@tencent-connect/qqbot-connector` (npm, license field: `UNLICENSED`) — QR-login ("扫码接入"). Used strictly as an installed npm dependency; its code is not copied into this package and it is not included in `files`.
+- `qrcode` (MIT) — turns the QQ connect URL into the PNG shown on the plugin page.
+- `@deepseek-ai/schemastery` (MIT, shipped with DSH) — the plugin Config schema.
 
 ## dsh-im license
 

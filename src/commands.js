@@ -1,11 +1,13 @@
-// One table for the four commands. `name` is the QQ command-panel item name:
-// the platform fills it into the chat box when clicked (a leading "/" is not
-// allowed there), so it doubles as the alias the bridge accepts.
+// One table for the QQ commands. `name` is the QQ command-panel item name: the
+// platform strips a leading "/" there and the QQ client renders "/name" for
+// command items, so the panel shows /new, /status, ... and fills the chat box
+// with that same text. Keep the names in sync with the slash commands.
 export const COMMANDS = Object.freeze([
-  { command: '/new', name: '新建会话', desc: '新建会话并绑定到本聊天' },
-  { command: '/status', name: '连接状态', desc: '查看连接与绑定状态' },
-  { command: '/unbind', name: '解除绑定', desc: '解除 QQ 绑定' },
-  { command: '/help', name: '显示帮助', desc: '显示可用命令' },
+  { command: '/new', name: 'new', desc: '新建会话，可附带首轮消息' },
+  { command: '/status', name: 'status', desc: '查看连接与绑定状态' },
+  { command: '/model', name: 'model', desc: '查看或切换当前会话模型' },
+  { command: '/unbind', name: 'unbind', desc: '解除 QQ 绑定' },
+  { command: '/help', name: 'help', desc: '显示可用命令' },
 ]);
 
 export const ALIASES = new Map(COMMANDS.map((item) => [item.name, item.command]));
