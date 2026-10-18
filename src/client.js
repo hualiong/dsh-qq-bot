@@ -16,7 +16,9 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const {
       Button,
+      IconFolderOpenOutlineRegular,
       IconLinkOutlineRegular,
+      IconTrashOutlineRegular,
       MenuItemButton,
       Modal,
       SegmentedControl,
@@ -24,6 +26,7 @@ window.__ModuleLoader__.load({
       SettingsSecretField,
       SettingsValueField,
       Switch,
+      Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     const NS = 'dsh-qq-lite'
@@ -35,6 +38,10 @@ window.__ModuleLoader__.load({
     const STATUS_POLL_MS = 10_000
     const QR_POLL_MS = 1_000
     const QR_SOURCE = /^data:image\/(?:png|webp);base64,[a-z\d+/]+={0,2}$/i
+    // Survives settings-panel remounts, so reopening the page paints the last
+    // known state immediately instead of flashing the unconfigured layout while
+    // the first status round-trip is still in flight.
+    let statusCache = null
 
     const zh = {
       'nav': 'QQ 机器人',
@@ -50,6 +57,7 @@ window.__ModuleLoader__.load({
       'status.botFallback': 'QQ 机器人',
       'status.error': '最近错误',
       'status.pending': '已保存 AppID，还缺 AppSecret：在下方「手动填写」里补上即可完成接入。',
+      'status.pendingBadge': '待完成',
       'connect.title': '接入机器人',
       'connect.description': '扫码会自动创建并接入机器人；已经有机器人时，可以手动填写凭据。',
       'connect.saved': '已保存，正在接入 QQ 机器人。',
@@ -74,12 +82,13 @@ window.__ModuleLoader__.load({
       'manual.workspace': '默认工作区',
       'manual.workspaceHint': '/new 新建会话使用的绝对路径；留空使用 $DSH_HOME/im。',
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
-      'push.title': '消息推送',
-      'push.label': '允许 Agent 推送 QQ 消息',
-      'push.description': '开启后，任意会话的 Agent 都可以调用 send_qq_message，向绑定的 QQ 聊天推送消息。',
+      'push.label': '允许 Agent 主动推送消息',
+      'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话。',
       'workspace.title': '默认工作区',
       'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im。',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
+      'workspace.pick': '选择目录',
+      'workspace.pickFailed': '无法打开目录选择器，请直接输入路径。',
       'save': '保存',
       'saving': '保存中…',
       'saveFailed': '保存失败',
@@ -103,6 +112,7 @@ window.__ModuleLoader__.load({
       'status.botFallback': 'QQ bot',
       'status.error': 'Last error',
       'status.pending': 'The AppID is saved but the AppSecret is missing. Add it under “Manual setup” to finish connecting.',
+      'status.pendingBadge': 'Incomplete',
       'connect.title': 'Connect a bot',
       'connect.description': 'Scanning creates and connects a bot for you; for an existing bot, enter its credentials manually.',
       'connect.saved': 'Saved. Connecting the QQ bot.',
@@ -127,12 +137,13 @@ window.__ModuleLoader__.load({
       'manual.workspace': 'Default workspace',
       'manual.workspaceHint': 'Absolute path used by /new; blank falls back to $DSH_HOME/im.',
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
-      'push.title': 'Message push',
-      'push.label': 'Let Agents push to QQ',
-      'push.description': 'When on, any session’s Agent can call send_qq_message to push messages to the bound QQ chat.',
+      'push.label': 'Let Agents push to you',
+      'push.description': 'Any session’s Agent can push messages to you with the send_qq_message tool; no bound session required.',
       'workspace.title': 'Default workspace',
       'workspace.description': 'Sessions started with /new are created in this directory; blank falls back to $DSH_HOME/im.',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
+      'workspace.pick': 'Choose a folder',
+      'workspace.pickFailed': 'Could not open the folder picker; type the path instead.',
       'save': 'Save',
       'saving': 'Saving…',
       'saveFailed': 'Save failed',
@@ -273,16 +284,6 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
       },
       stateLine: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px' },
-      dot: (on) => ({
-        display: 'inline-block',
-        flex: 'none',
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        background: on
-          ? 'var(--dsw-alias-state-success-primary, #21a67a)'
-          : 'var(--dsw-alias-label-tertiary, #8a8a8e)',
-      }),
       botRow: { display: 'flex', alignItems: 'center', gap: 12 },
       avatar: { width: 44, height: 44, borderRadius: 22, objectFit: 'cover', display: 'block', flex: 'none' },
       avatarFallback: {
@@ -296,6 +297,7 @@ window.__ModuleLoader__.load({
         background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.14))',
       },
       botInfo: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 },
+      nameRow: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
       botName: {
         margin: 0,
         fontSize: 15,
@@ -306,15 +308,35 @@ window.__ModuleLoader__.load({
         whiteSpace: 'nowrap',
       },
       metaLine: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        flexWrap: 'wrap',
+        margin: 0,
         fontSize: 12,
         lineHeight: '18px',
         color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
       },
-      sep: { opacity: 0.6 },
+      pushRow: { display: 'flex', alignItems: 'center', gap: 16 },
+      pushText: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 },
+      pushLabel: { margin: 0, fontSize: 13, fontWeight: 500, lineHeight: '20px' },
+      inputRow: { display: 'flex', alignItems: 'center', gap: 8 },
+      iconButton: {
+        boxSizing: 'border-box',
+        flex: 'none',
+        width: 32,
+        height: 32,
+        padding: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 'var(--dsw-radius-md, 8px)',
+      },
+      saveButton: {
+        borderRadius: 'var(--dsw-radius-md, 8px)',
+        height: 32,
+        padding: '0 12px',
+        fontSize: 13,
+        lineHeight: '20px',
+      },
       toggleRow: {
         display: 'flex',
         alignItems: 'center',
@@ -382,8 +404,8 @@ window.__ModuleLoader__.load({
 
     // --- settings page ------------------------------------------------------------
 
-    function QqSettingsPage({ t, connection }) {
-      const [status, setStatus] = useState(null)
+    function QqSettingsPage({ t, connection, pickDirectory }) {
+      const [status, setStatus] = useState(statusCache)
       const [loadError, setLoadError] = useState(null)
       const [mode, setMode] = useState('qr')
       const [appId, setAppId] = useState(null)
@@ -407,9 +429,14 @@ window.__ModuleLoader__.load({
       const [avatarFailed, setAvatarFailed] = useState(null)
       const [confirmRemove, setConfirmRemove] = useState(false)
 
+      const applyStatus = useCallback((next) => {
+        statusCache = next
+        setStatus(next)
+      }, [])
+
       const refresh = useCallback(() => callRpc(connection, 'connection.status')
-        .then((value) => { setStatus(value); setLoadError(null) })
-        .catch((failure) => setLoadError(failure.message)), [connection])
+        .then((value) => { applyStatus(value); setLoadError(null) })
+        .catch((failure) => setLoadError(failure.message)), [applyStatus, connection])
 
       useEffect(() => { refresh() }, [refresh])
 
@@ -503,7 +530,7 @@ window.__ModuleLoader__.load({
           const payload = { appId: appValue.trim(), workspace: wsValue.trim() }
           if (secret.trim()) payload.appSecret = secret.trim()
           const next = await callRpc(connection, 'bot.save', payload)
-          setStatus(next)
+          applyStatus(next)
           setAppId(null)
           setWorkspace(null)
           setWsText(null)
@@ -533,7 +560,7 @@ window.__ModuleLoader__.load({
             appId: status?.appId ?? '',
             workspace: workspaceText.trim(),
           })
-          setStatus(next)
+          applyStatus(next)
           setWsText(null)
           setWsNotice(t('manual.saved'))
         } catch (failure) {
@@ -547,7 +574,7 @@ window.__ModuleLoader__.load({
         setToolBusy(true)
         setError(null)
         try {
-          setStatus(await callRpc(connection, 'tools.set', { enabled: next }))
+          applyStatus(await callRpc(connection, 'tools.set', { enabled: next }))
         } catch (failure) {
           setError(failure.message)
         } finally {
@@ -560,7 +587,7 @@ window.__ModuleLoader__.load({
         setError(null)
         try {
           const next = await callRpc(connection, 'bot.delete', {})
-          setStatus(next)
+          applyStatus(next)
           setAppId(null)
           setWorkspace(null)
           setWsText(null)
@@ -578,20 +605,19 @@ window.__ModuleLoader__.load({
         && qr.qrCodeDataUrl.length < 2 * 1024 * 1024
         && QR_SOURCE.test(qr.qrCodeDataUrl) ? qr.qrCodeDataUrl : null
 
-      const meta = status === null ? [] : [
-        status.connected ? t('status.on') : t('status.off'),
+      const botIntro = typeof botInfo?.intro === 'string' && botInfo.intro.trim()
+        ? botInfo.intro.trim()
+        : null
+      // The bot API only exposes a self profile when the bot has one; without an
+      // intro line fall back to the two stable identifiers, unmasked AppID included.
+      const botMeta = botIntro ?? (status === null ? '' : [
         botInfo?.uin ? `QQ ${botInfo.uin}` : null,
-        status.appIdMasked ? `AppID ${status.appIdMasked}` : null,
-      ].filter(Boolean)
-
-      const metaNodes = []
-      if (status !== null) {
-        metaNodes.push(h('span', { style: styles.dot(status.connected === true) }))
-        meta.forEach((piece, index) => {
-          if (index > 0) metaNodes.push(h('span', { key: `${piece}-sep`, style: styles.sep }, '·'))
-          metaNodes.push(h('span', { key: piece }, piece))
-        })
-      }
+        status.appId ? `AppID ${status.appId}` : null,
+      ].filter(Boolean).join(' · '))
+      const badge = status === null || !hasBot ? null
+        : !configured ? { tone: 'warning', text: t('status.pendingBadge') }
+          : status.connected ? { tone: 'success', text: t('status.on') }
+            : { tone: 'danger', text: t('status.off') }
 
       // Avatar plus nickname come from the bot's own /users/@me profile; while
       // the profile is still loading (or missing) the mark and a plain label
@@ -609,11 +635,13 @@ window.__ModuleLoader__.load({
         h('div', { style: styles.botRow },
           avatar,
           h('div', { style: styles.botInfo },
-            h('p', {
-              style: styles.botName,
-              title: botInfo?.name ?? undefined,
-            }, botInfo?.name || t('status.botFallback')),
-            h('div', { style: styles.metaLine }, ...metaNodes),
+            h('div', { style: styles.nameRow },
+              h('p', {
+                style: styles.botName,
+                title: botInfo?.name ?? undefined,
+              }, botInfo?.name || t('status.botFallback')),
+              badge ? h(Tag, { tone: badge.tone }, badge.text) : null),
+            botMeta ? h('p', { style: styles.metaLine, title: botMeta }, botMeta) : null,
             status.lastError ? h('p', { style: styles.error }, `${t('status.error')}：${status.lastError}`) : null,
             hasBot && !configured ? h('p', { style: styles.cardDesc }, t('status.pending')) : null,
             configured && error ? h('p', { style: styles.error }, error) : null,
@@ -622,6 +650,7 @@ window.__ModuleLoader__.load({
             onClick: () => setConfirmRemove(true),
             disabled: removeBusy,
             style: styles.danger,
+            icon: h(IconTrashOutlineRegular, { size: 14 }),
           }, t('remove.button'))))
 
       const qrPane = h(React.Fragment, null,
@@ -716,12 +745,11 @@ window.__ModuleLoader__.load({
         error ? h('p', { style: styles.error }, error) : null,
         notice ? h('p', { style: styles.notice }, notice) : null)
 
-      const pushCard = !configured ? null : h(Card, {
-        title: t('push.title'),
-        description: t('push.description'),
-      },
-        h('div', { style: styles.toggleRow },
-          h('span', null, t('push.label')),
+      const pushCard = !configured ? null : h(Card, null,
+        h('div', { style: styles.pushRow },
+          h('div', { style: styles.pushText },
+            h('p', { style: styles.pushLabel }, t('push.label')),
+            h('p', { style: styles.cardDesc }, t('push.description'))),
           h(Switch, {
             checked: toolEnabled,
             disabled: toolBusy,
@@ -729,26 +757,53 @@ window.__ModuleLoader__.load({
             onChange: toggleTools,
           })))
 
+      const chooseWorkspace = async () => {
+        setWsError(null)
+        setWsNotice(null)
+        try {
+          const picked = await pickDirectory()
+          if (picked === undefined) {
+            setWsError(t('workspace.pickFailed'))
+          } else if (typeof picked === 'string' && picked.trim() !== '') {
+            setWsText(picked.trim())
+          }
+        } catch (failure) {
+          setWsError(failure?.message ?? String(failure))
+        }
+      }
+
       const workspaceCard = !configured ? null : h(Card, {
         title: t('workspace.title'),
         description: t('workspace.description'),
       },
-        h('input', {
-          type: 'text',
-          style: styles.input,
-          value: workspaceText,
-          placeholder: t('workspace.placeholder'),
-          disabled: wsBusy,
-          'aria-label': t('workspace.title'),
-          onChange: (event) => {
-            setWsText(event.target.value)
-            setWsError(null)
-            setWsNotice(null)
-          },
-        }),
+        h('div', { style: styles.inputRow },
+          h('input', {
+            type: 'text',
+            style: styles.input,
+            value: workspaceText,
+            placeholder: t('workspace.placeholder'),
+            disabled: wsBusy,
+            'aria-label': t('workspace.title'),
+            onChange: (event) => {
+              setWsText(event.target.value)
+              setWsError(null)
+              setWsNotice(null)
+            },
+          }),
+          h(Button, {
+            variant: 'outline',
+            className: 'dsh-qq-lite-pick-directory',
+            style: styles.iconButton,
+            title: t('workspace.pick'),
+            'aria-label': t('workspace.pick'),
+            disabled: wsBusy,
+            icon: h(IconFolderOpenOutlineRegular, { size: 14 }),
+            onClick: chooseWorkspace,
+          })),
         h('div', { style: styles.actions },
           h(Button, {
             variant: 'primary',
+            style: styles.saveButton,
             onClick: saveWorkspace,
             disabled: wsBusy || !workspaceDirty,
           }, wsBusy ? t('saving') : t('save'))),
@@ -792,6 +847,19 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       const connection = ctx.get('connection')
       const t = ctx.locale.bind(NS)
+
+      // The desktop shell exposes a native chooser on globalThis; the web shell
+      // routes through the shipped workspace picker. Both are resolved lazily
+      // because they may mount after this plugin does.
+      const pickDirectory = async () => {
+        const desktop = globalThis.__DSH_DIRECTORY_PICKER__
+        if (desktop !== undefined && typeof desktop?.pick === 'function') return desktop.pick()
+        const uiWorkspace = ctx.get('uiWorkspace')
+        if (uiWorkspace !== undefined && typeof uiWorkspace?.pickDirectory === 'function') {
+          return uiWorkspace.pickDirectory()
+        }
+        return undefined
+      }
       const store = createBoundStore()
       store.refresh = () => callRpc(connection, 'connection.status')
         .then((value) => store.set(value.sessionId ?? null))
@@ -828,7 +896,7 @@ window.__ModuleLoader__.load({
         order: 22,
         label: () => t('nav'),
         locale: NS,
-        inject: () => ({ connection }),
+        inject: () => ({ connection, pickDirectory }),
       }, QqSettingsPage))
     }
 

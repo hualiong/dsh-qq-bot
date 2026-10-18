@@ -37,6 +37,7 @@ export async function describeStatus(ctx, holder) {
     bot: profile === null ? null : {
       name: profile.name,
       avatar: profile.avatar,
+      intro: profile.intro ?? null,
       uin: profile.uin,
       shareUrl: profile.shareUrl,
     },

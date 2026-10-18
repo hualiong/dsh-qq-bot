@@ -20,14 +20,20 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
   // Public bot profile for the settings page (/users/@me): nickname, avatar,
   // and the share link that carries the bot's QQ number. Decoration only — a
   // failure leaves the page without the avatar, never blocks the connection.
+  // The endpoint has no intro field today; `intro` reads it if the platform
+  // ever exposes one so the page can prefer it over the identifier fallback.
   const readProfile = (instance) => {
     if (typeof instance.api?.get !== 'function') return;
     instance.api.get('/users/@me').then((me) => {
       if (bot !== instance) return;
+      const intro = typeof me?.description === 'string' && me.description.trim() !== ''
+        ? me.description.trim()
+        : null;
       profile = {
         id: me?.id ?? null,
         name: me?.username ?? null,
         avatar: me?.avatar ?? null,
+        intro,
         uin: /robot_uin=(\d+)/.exec(me?.share_url ?? '')?.[1] ?? null,
         shareUrl: me?.share_url ?? null,
       };
