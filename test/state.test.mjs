@@ -7,7 +7,7 @@ import test from 'node:test';
 import { createStateStore } from '../src/state.js';
 
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-state-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-state-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return { path: join(root, 'state.json') };
 }
@@ -47,7 +47,7 @@ test('unbind keeps the owner and the push target', async (t) => {
 });
 
 test('a failed write leaves memory unchanged and later writes still run', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-state-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-state-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const dir = join(root, 'data');
   await mkdir(dir);

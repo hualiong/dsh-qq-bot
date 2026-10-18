@@ -45,13 +45,13 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   let queue = Promise.resolve();
 
   const send = (message, text) => runtime.sendText(message.replyTarget, text).catch((error) => {
-    logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
+    logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
   });
 
   // sendMarkdownReply already retries plain text after a markdown rejection and
   // refuses retries when delivery is uncertain, so never resend here.
   const sendMarkdown = (message, text) => runtime.sendMarkdown(message.replyTarget, text).catch((error) => {
-    logger.warn?.('[dsh-qq-lite] Markdown 回复发送失败：', error?.message ?? error);
+    logger.warn?.('[dsh-qq-bot] Markdown 回复发送失败：', error?.message ?? error);
   });
 
   const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
@@ -74,9 +74,9 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         } catch (error) {
           // sendMarkdownReply only throws when nothing was delivered, so a
           // plain-text retry cannot duplicate the answer.
-          logger.warn?.('[dsh-qq-lite] Markdown 回复失败，改用纯文本：', error?.message ?? error);
+          logger.warn?.('[dsh-qq-bot] Markdown 回复失败，改用纯文本：', error?.message ?? error);
           await runtime.sendText(target, result.text).catch((fallbackError) => {
-            logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', fallbackError?.message ?? fallbackError);
+            logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', fallbackError?.message ?? fallbackError);
           });
         }
         return;
@@ -84,12 +84,12 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       return runtime.sendText(target, result.reason?.kind === 'completed'
         ? '本轮处理已结束，没有文本回复。'
         : turnFailureText(result.reason)).catch((error) => {
-        logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', error?.message ?? error);
+        logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
       });
     } catch (error) {
-      logger.warn?.('[dsh-qq-lite] 处理消息失败：', error?.message ?? error);
+      logger.warn?.('[dsh-qq-bot] 处理消息失败：', error?.message ?? error);
       return runtime.sendText(deliverTarget(message, startedAt), userFacingError(error)).catch((sendError) => {
-        logger.warn?.('[dsh-qq-lite] QQ 回复发送失败：', sendError?.message ?? sendError);
+        logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', sendError?.message ?? sendError);
       });
     }
   }
@@ -115,7 +115,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         sessionId = await createSession(ctx, settings.workspace);
         await state.setSession(sessionId);
       } catch (error) {
-        logger.warn?.('[dsh-qq-lite] 新建会话失败：', error?.message ?? error);
+        logger.warn?.('[dsh-qq-bot] 新建会话失败：', error?.message ?? error);
         return sendMarkdown(message, userFacingError(error));
       }
       // `/new <message>` starts the first turn immediately, which also makes the
@@ -136,7 +136,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       try {
         return sendMarkdown(message, await (args ? switchModel(ctx, sessionId, args) : modelListText(ctx, sessionId)));
       } catch (error) {
-        logger.warn?.('[dsh-qq-lite] 切换模型失败：', error?.message ?? error);
+        logger.warn?.('[dsh-qq-bot] 切换模型失败：', error?.message ?? error);
         return sendMarkdown(message, userFacingError(error));
       }
     }

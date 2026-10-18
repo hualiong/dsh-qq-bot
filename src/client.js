@@ -1,15 +1,15 @@
-// dsh-qq-lite: CLIENT half.
+// dsh-qq-bot: CLIENT half.
 //
 //   sidebar.session.row.leading           — QQ mark on the bound session row
 //   sidebar.workspaces.session.menu.item  — bind / unbind that session
-//   settings.section (id "dsh-qq-lite")   — bot status, connect flow, push toggle, workspace
+//   settings.section (id "dsh-qq-bot")   — bot status, connect flow, push toggle, workspace
 //
 // Binding is one global slot: the row already bound turns the menu item into
 // unbind and keeps the mark. The settings page reads and writes the bot through
 // the Host's authenticated /api carrier and reuses the official primitives so it
 // sits next to the shipped settings pages.
 window.__ModuleLoader__.load({
-  id: '@hualiong/dsh-qq-lite',
+  id: '@hualiong/dsh-qq-bot',
   factory: (require) => {
     const React = require('react')
     const { useCallback, useEffect, useState, useSyncExternalStore } = React
@@ -29,12 +29,11 @@ window.__ModuleLoader__.load({
       Tag,
     } = require('@deepseek-ai/dsh-client-ui-primitives')
 
-    const NS = 'dsh-qq-lite'
-    const MEMBER_ROW_ID = 'hualiong-dsh-qq-lite'
-    const LEADING_SLOT = 'sidebar.session.row.leading'
+    const NS = 'dsh-qq-bot'
+        const LEADING_SLOT = 'sidebar.session.row.leading'
     const MENU_SLOT = 'sidebar.workspaces.session.menu.item'
     const SETTINGS_SLOT = 'settings.section'
-    const RPC_CHANNEL = 'dsh-qq-lite'
+    const RPC_CHANNEL = 'dsh-qq-bot'
     const STATUS_POLL_MS = 10_000
     const QR_POLL_MS = 1_000
     const QR_SOURCE = /^data:image\/(?:png|webp);base64,[a-z\d+/]+={0,2}$/i
@@ -84,7 +83,7 @@ window.__ModuleLoader__.load({
       'push.label': '允许 Agent 主动推送消息',
       'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话',
       'workspace.title': '默认工作区',
-      'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im。',
+      'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
       'workspace.pick': '选择目录',
       'workspace.pickFailed': '无法打开目录选择器，请直接输入路径。',
@@ -304,14 +303,6 @@ window.__ModuleLoader__.load({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-      },
-      metaLine: {
-        margin: 0,
-        fontSize: 12,
-        lineHeight: '18px',
-        color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
       },
       metaTags: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
       pushRow: { display: 'flex', alignItems: 'center', gap: 16 },
@@ -604,11 +595,8 @@ window.__ModuleLoader__.load({
         && qr.qrCodeDataUrl.length < 2 * 1024 * 1024
         && QR_SOURCE.test(qr.qrCodeDataUrl) ? qr.qrCodeDataUrl : null
 
-      const botIntro = typeof botInfo?.intro === 'string' && botInfo.intro.trim()
-        ? botInfo.intro.trim()
-        : null
-      // Without an intro line the two stable identifiers stand in as Tag badges.
-      const botMetaTags = botIntro !== null ? [] : [
+      // The two stable identifiers are the whole second line.
+      const botMetaTags = [
         botInfo?.uin ? `QQ ${botInfo.uin}` : null,
         status?.appId ? `AppID ${status.appId}` : null,
       ].filter(Boolean)
@@ -639,7 +627,6 @@ window.__ModuleLoader__.load({
                 title: botInfo?.name ?? undefined,
               }, botInfo?.name || t('status.botFallback')),
               badge ? h(Tag, { tone: badge.tone }, badge.text) : null),
-            botIntro ? h('p', { style: styles.metaLine, title: botIntro }, botIntro) : null,
             botMetaTags.length > 0
               ? h('div', { style: styles.metaTags }, botMetaTags.map((text) => h(Tag, { key: text }, text)))
               : null,
@@ -685,7 +672,7 @@ window.__ModuleLoader__.load({
         onDiscard: discardManual,
       },
         h(SettingsValueField, {
-          id: 'dsh-qq-lite-app-id',
+          id: 'dsh-qq-bot-app-id',
           label: t('manual.appId'),
           hint: t('manual.appIdHint'),
           placeholder: t('manual.appIdPlaceholder'),
@@ -694,7 +681,7 @@ window.__ModuleLoader__.load({
           onEdit: (text) => { setAppId(text); setNotice(null) },
         }),
         h(SettingsSecretField, {
-          id: 'dsh-qq-lite-app-secret',
+          id: 'dsh-qq-bot-app-secret',
           label: t('manual.secret'),
           hint: t('manual.secretHint'),
           disabled: busy,
@@ -704,7 +691,7 @@ window.__ModuleLoader__.load({
           onEdit: (text) => { setSecret(text); setNotice(null) },
         }),
         h(SettingsValueField, {
-          id: 'dsh-qq-lite-setup-workspace',
+          id: 'dsh-qq-bot-setup-workspace',
           label: t('manual.workspace'),
           hint: t('manual.workspaceHint'),
           placeholder: t('manual.workspacePlaceholder'),
@@ -718,7 +705,7 @@ window.__ModuleLoader__.load({
         description: t('connect.description'),
       },
         h(SegmentedControl, {
-          id: 'dsh-qq-lite-connect-mode',
+          id: 'dsh-qq-bot-connect-mode',
           label: t('connect.mode'),
           value: mode,
           options: [
@@ -793,7 +780,7 @@ window.__ModuleLoader__.load({
           }),
           h(Button, {
             variant: 'outline',
-            className: 'dsh-qq-lite-pick-directory',
+            className: 'dsh-qq-bot-pick-directory',
             style: styles.iconButton,
             title: t('workspace.pick'),
             'aria-label': t('workspace.pick'),
@@ -875,7 +862,7 @@ window.__ModuleLoader__.load({
       // Idle-row cell before the title; a status dot takes the seat when busy.
       ctx.slots.inject(LEADING_SLOT, () => ctx.slots.register({
         name: LEADING_SLOT,
-        id: 'dsh-qq-lite-badge',
+        id: 'dsh-qq-bot-badge',
         order: 20,
         locale: NS,
         inject: () => ({ store }),
@@ -884,7 +871,7 @@ window.__ModuleLoader__.load({
       // 890 keeps this row just above the shipped "Delete session" row (900).
       ctx.slots.inject(MENU_SLOT, () => ctx.slots.register({
         name: MENU_SLOT,
-        id: 'dsh-qq-lite-bind',
+        id: 'dsh-qq-bot-bind',
         order: 890,
         locale: NS,
         inject: () => ({ connection, store }),
@@ -893,7 +880,7 @@ window.__ModuleLoader__.load({
       // 22 sits right after the shipped IM bot page (21).
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
-        id: 'dsh-qq-lite',
+        id: 'dsh-qq-bot',
         order: 22,
         label: () => t('nav'),
         locale: NS,

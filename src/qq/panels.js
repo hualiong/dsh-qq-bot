@@ -4,7 +4,10 @@
 // example an account without panel permission) are the caller's to log.
 import { COMMANDS } from '../commands.js';
 
-const REMARK = 'dsh-qq-lite';
+const REMARK = 'dsh-qq-bot';
+// 0.3.x registered its panel under the old plugin name; delete it so the QQ
+// client does not show two command panels after the rename.
+const LEGACY_REMARK = 'dsh-qq-lite';
 
 export const COMMAND_ITEMS = Object.freeze(COMMANDS.map(({ name, desc }) => ({
   type: 'command',
@@ -18,6 +21,15 @@ export async function ensureCommandPanel(bot, { logger } = {}) {
 
   const listed = await api.get('/v2/panels', { scope: 'c2c', limit: 50 });
   const records = Array.isArray(listed?.records) ? listed.records : [];
+  const stale = records.filter((record) => record?.scope === 'c2c'
+    && record?.target_type === 'all'
+    && record?.panel?.remark === LEGACY_REMARK);
+  if (typeof api.delete === 'function') {
+    for (const record of stale) {
+      if (!record?.panel_id) continue;
+      await api.delete(`/v2/panels/${encodeURIComponent(record.panel_id)}`).catch(() => undefined);
+    }
+  }
   const existing = records.find((record) => record?.scope === 'c2c'
     && record?.target_type === 'all'
     && record?.panel?.remark === REMARK);
@@ -28,5 +40,5 @@ export async function ensureCommandPanel(bot, { logger } = {}) {
   } else {
     await api.post('/v2/panels', { scope: 'c2c', target_type: 'all', panel });
   }
-  logger?.info?.('[dsh-qq-lite] QQ 指令面板已更新');
+  logger?.info?.('[dsh-qq-bot] QQ 指令面板已更新');
 }

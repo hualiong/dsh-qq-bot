@@ -7,7 +7,7 @@ import { mkdir } from 'node:fs/promises';
 
 import { ReplyTracker } from './qq/tracker.js';
 
-const REQUEST_PREFIX = 'qq-lite';
+const REQUEST_PREFIX = 'qq-bot';
 
 // This plugin's fiber does not inject the session services, so they are read
 // through ctx.get (property access would throw "without inject").

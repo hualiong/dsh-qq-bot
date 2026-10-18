@@ -27,7 +27,6 @@ test('the ready handshake publishes the bot profile from /users/@me', async () =
           username: "Hualiang's bot",
           avatar: 'http://thirdqq.qlogo.cn/avatar.png',
           share_url: 'https://qun.qq.com/qunpro/robot/qunshare?robot_uin=4012894874&robot_appid=1905390910',
-          description: '  把 DSH 接到 QQ 的测试机器人  ',
         };
       },
     },
@@ -51,7 +50,6 @@ test('the ready handshake publishes the bot profile from /users/@me', async () =
   assert.equal(runtime.profile.name, "Hualiang's bot");
   assert.equal(runtime.profile.uin, '4012894874');
   assert.equal(runtime.profile.avatar, 'http://thirdqq.qlogo.cn/avatar.png');
-  assert.equal(runtime.profile.intro, '把 DSH 接到 QQ 的测试机器人', 'the bot intro is trimmed');
 
   await runtime.stop();
   assert.equal(runtime.profile, null, 'stopping forgets the profile');

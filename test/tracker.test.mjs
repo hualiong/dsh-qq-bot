@@ -50,7 +50,7 @@ function feed(tracker, events) {
 // ---------------------------------------------------------------------------
 // Ported from upstream test/qq-final-answer.test.mjs (live stream half only).
 // The upstream `extractCompletedTurnAnswer` history-recovery half is omitted:
-// dsh-qq-lite has no history-recovery API.
+// dsh-qq-bot has no history-recovery API.
 // ---------------------------------------------------------------------------
 
 const finalAnswerCases = [

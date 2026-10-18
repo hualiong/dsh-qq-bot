@@ -37,8 +37,7 @@ export async function describeStatus(ctx, holder) {
     bot: profile === null ? null : {
       name: profile.name,
       avatar: profile.avatar,
-      intro: profile.intro ?? null,
-      uin: profile.uin,
+        uin: profile.uin,
       shareUrl: profile.shareUrl,
     },
     workspace: settings.workspace,
@@ -90,7 +89,7 @@ export async function saveBot(ctx, holder, payload = {}, logger = console) {
     || Boolean(supplied);
   if (identityChanged) await holder.remount();
   else if (holder.settings) holder.settings.workspace = doc.workspace;
-  logger.info?.(`[dsh-qq-lite] 机器人已配置：${doc.appId}`);
+  logger.info?.(`[dsh-qq-bot] 机器人已配置：${doc.appId}`);
   return describeStatus(ctx, holder);
 }
 
@@ -102,7 +101,7 @@ export async function deleteBot(ctx, holder, logger = console) {
   holder.settings = null;
   if (secretRef) {
     await ctx.credentials.unset(secretRef).catch((error) => {
-      logger.warn?.('[dsh-qq-lite] 删除凭据失败：', error?.message ?? error);
+      logger.warn?.('[dsh-qq-bot] 删除凭据失败：', error?.message ?? error);
     });
   }
   if (holder.state) {

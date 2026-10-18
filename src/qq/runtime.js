@@ -20,25 +20,19 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
   // Public bot profile for the settings page (/users/@me): nickname, avatar,
   // and the share link that carries the bot's QQ number. Decoration only — a
   // failure leaves the page without the avatar, never blocks the connection.
-  // The endpoint has no intro field today; `intro` reads it if the platform
-  // ever exposes one so the page can prefer it over the identifier fallback.
   const readProfile = (instance) => {
     if (typeof instance.api?.get !== 'function') return;
     instance.api.get('/users/@me').then((me) => {
       if (bot !== instance) return;
-      const intro = typeof me?.description === 'string' && me.description.trim() !== ''
-        ? me.description.trim()
-        : null;
       profile = {
         id: me?.id ?? null,
         name: me?.username ?? null,
         avatar: me?.avatar ?? null,
-        intro,
         uin: /robot_uin=(\d+)/.exec(me?.share_url ?? '')?.[1] ?? null,
         shareUrl: me?.share_url ?? null,
       };
     }).catch((error) => {
-      logger.warn?.('[dsh-qq-lite] 读取机器人资料失败：', error?.message ?? error);
+      logger.warn?.('[dsh-qq-bot] 读取机器人资料失败：', error?.message ?? error);
     });
   };
 
@@ -46,7 +40,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     if (stopping || retryTimer) return;
     status.state = 'failed';
     status.lastError = error?.message ?? String(error);
-    logger.warn?.(`[dsh-qq-lite] QQ 连接失败，${RETRY_MS / 1000} 秒后重试：${status.lastError}`);
+    logger.warn?.(`[dsh-qq-bot] QQ 连接失败，${RETRY_MS / 1000} 秒后重试：${status.lastError}`);
     retryTimer = setTimeout(() => {
       retryTimer = null;
       // The retry owns its failure: an unhandled rejection here would take the
@@ -85,7 +79,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     });
     instance.on('error', (error) => {
       status.lastError = error?.message ?? String(error);
-      logger.warn?.('[dsh-qq-lite] QQ 连接错误：', status.lastError);
+      logger.warn?.('[dsh-qq-bot] QQ 连接错误：', status.lastError);
       if (!status.ready) settle.reject(error);
     });
     instance.on('message', async (_ctx, message) => { await onMessage(message); });
@@ -122,7 +116,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     // Publish the command panel the QQ client shows after typing "/". It is
     // decoration: a bot without panel permission still answers commands.
     ensureCommandPanel(instance, { logger }).catch((error) => {
-      logger.warn?.('[dsh-qq-lite] QQ 指令面板配置失败：', error?.message ?? error);
+      logger.warn?.('[dsh-qq-bot] QQ 指令面板配置失败：', error?.message ?? error);
     });
   };
 

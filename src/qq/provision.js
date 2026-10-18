@@ -73,7 +73,7 @@ export function createProvisioner({
     attempt.resolveFirst?.();
   };
 
-  async function begin({ source = 'dsh-qq-lite' } = {}) {
+  async function begin({ source = 'dsh-qq-bot' } = {}) {
     if (current) stop(current);
     current = null;
 
@@ -103,7 +103,7 @@ export function createProvisioner({
           settle(attempt);
         }).catch((error) => {
           if (current !== attempt) return;
-          logger.warn?.('[dsh-qq-lite] 二维码生成失败：', error?.message ?? error);
+          logger.warn?.('[dsh-qq-bot] 二维码生成失败：', error?.message ?? error);
           attempt.status = 'failed';
           attempt.error = '二维码生成失败';
           settle(attempt);

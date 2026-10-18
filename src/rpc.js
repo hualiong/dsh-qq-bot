@@ -4,9 +4,9 @@
 import { deleteBot, describeStatus, saveBot } from './bot-config.js';
 import { sessionExists } from './dsh.js';
 
-const CHANNEL = 'dsh-qq-lite';
+const CHANNEL = 'dsh-qq-bot';
 const PATH = `/api/${CHANNEL}`;
-const VERSION = '0.3.3'; // keep in step with package.json; shown in the status payload
+const VERSION = '0.4.0'; // keep in step with package.json; shown in the status payload
 
 function reply(rpcId, result) {
   const value = result.ok === false

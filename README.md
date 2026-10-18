@@ -1,6 +1,13 @@
-# dsh-qq-lite · QQ机器人
+# dsh-qq-bot · QQ机器人
 
-**只做 QQ 的 DeepSeek Harness 机器人桥（插件显示名：QQ机器人）。** 从 [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)（MIT）里只留下 QQ 私聊这一条链路，去掉其余 13 个渠道与大量管理功能。
+[![npm](https://img.shields.io/npm/v/@hualiong/dsh-qq-bot.svg)](https://www.npmjs.com/package/@hualiong/dsh-qq-bot)
+[![license](https://img.shields.io/npm/l/@hualiong/dsh-qq-bot.svg)](LICENSE)
+
+把 **DeepSeek Harness** 的一个会话接到 **QQ 私聊**：QQ 里发消息就是给会话发 prompt，Agent 只把最终答案推回 QQ，也可以在任意会话里用 `send_qq_message` 主动推送。
+
+> A minimal QQ-only bridge for DeepSeek Harness: bind one session to one QQ private chat, start sessions from QQ with `/new`, relay only the final answer, and push from any session with the `send_qq_message` tool.
+
+从 [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)（MIT）里只留下 QQ 私聊这一条链路，去掉其余 13 个渠道与大量管理功能。
 
 ## 功能
 
@@ -11,21 +18,32 @@
 - **会话行 QQ 标记**：被绑定的会话在侧栏标题前显示蓝色的 QQ 机器人图标。
 - **只回传最终答案**：QQ 消息作为 prompt 进入绑定会话；只把该轮「最后一个工具调用之后的最终文本」推回 QQ，不推思考链和中间步骤。
 - **`send_qq_message` 工具**：任意会话的 Agent 都可调用，向最近说话的 QQ 聊天主动推送消息（支持 Markdown，平台拒绝时回退纯文本）；可在「设置 → QQ机器人」里关闭。
-- **设置页配置机器人**：「设置」中新增独立的「QQ机器人」页。未接入时用扫码接入（打开页面即出二维码）/ 手动填写 AppID+AppSecret 两条路径；已接入后展示机器人头像、昵称、状态徽标、QQ 号与 AppID，并提供消息推送开关与默认工作区（可用系统目录选择器）；界面复用官方设置页组件与设计变量。指令回复统一使用 Markdown（平台拒绝时自动回退纯文本）。
+- **设置页配置机器人**：「设置」中的独立「QQ机器人」页。未接入时用扫码接入（切到扫码 tab 即出二维码）/ 手动填写 AppID+AppSecret 两条路径；已接入后展示机器人头像、昵称、状态徽标，以及 `QQ <机器人 QQ 号>`、`AppID <完整 AppID>` 两枚标识徽标，并提供消息推送开关与默认工作区（可用系统目录选择器）。界面复用官方设置页组件与设计变量。
+- **指令回复统一 Markdown**（平台拒绝时自动回退纯文本），长答案自动分段。
 
 ## 安装
 
+从 npm（推荐）：
+
 ```shell
-dsh plugin --profile <profile> add @hualiong/dsh-qq-lite
+dsh plugin --profile <profile> add @hualiong/dsh-qq-bot
 ```
 
-也可以从仓库安装：`dsh plugin --profile <profile> add github:hualiong/dsh-qq-lite`，或在插件页面「添加插件」里填包名／仓库地址。
+从 GitHub 仓库：
 
-安装后插件行是 `hualiong-dsh-qq-lite`，默认启用；在「设置 → QQ机器人」里接入 QQ 机器人。
+```shell
+dsh plugin --profile <profile> add github:hualiong/dsh-qq-bot
+```
+
+也可以在 DSH 的「插件」页面里点「添加插件」，填包名 `@hualiong/dsh-qq-bot` 或仓库地址 `github:hualiong/dsh-qq-bot`。
+
+安装后插件行是 `hualiong-dsh-qq-bot`，默认启用；在「设置 → QQ机器人」里接入 QQ 机器人。
+
+> 从 0.4.0 起插件由 `dsh-qq-lite` 更名为 `dsh-qq-bot`。旧的 `$DSH_HOME/integrations/dsh-qq-lite/` 下的配置与会话绑定会在首次启动时自动复制到新目录，QQ 侧旧的指令面板也会被自动删除，无需手工迁移。
 
 ## 配置
 
-首次使用推荐在「设置 → QQ机器人」里**扫码接入**；也可以手动填写已有机器人的 AppID/AppSecret。插件自己保存的配置在 `$DSH_HOME/integrations/dsh-qq-lite/config.json`，AppSecret 只写进 DSH 凭据库（`DSH_QQBOT_APP_SECRET_<sha256(appId) 前 24 位大写>`，与 dsh-im 的命名一致）。
+首次使用推荐在「设置 → QQ机器人」里**扫码接入**；也可以手动填写已有机器人的 AppID/AppSecret。插件自己保存的配置在 `$DSH_HOME/integrations/dsh-qq-bot/config.json`，AppSecret 只写进 DSH 凭据库（`DSH_QQBOT_APP_SECRET_<sha256(appId) 前 24 位大写>`，与 dsh-im 的命名一致）。
 
 未配置时会退回 dsh-im 的 QQ 集成（`$DSH_HOME/integrations/dsh-qq/config.json`）作为零配置来源。行配置里的字段仅作为可选覆盖：
 
@@ -33,7 +51,7 @@ dsh plugin --profile <profile> add @hualiong/dsh-qq-lite
 | --- | --- |
 | `appId` / `secretRef` | 覆盖设置页保存的 AppID 与凭据名 |
 | `workspace` | `/new` 使用的默认工作区绝对路径 |
-| `dataDir` | 插件状态目录，默认 `$DSH_HOME/integrations/dsh-qq-lite` |
+| `dataDir` | 插件状态目录，默认 `$DSH_HOME/integrations/dsh-qq-bot` |
 | `ownerOpenId` | 允许使用机器人的 QQ 用户 openid；留空则第一个发私信的人自动认领（扫码接入会记录扫码人） |
 | `replyTimeoutMs` | 单轮回复的最长静默时间，默认 10 分钟 |
 | `toolEnabled` | 是否向 Agent 暴露 `send_qq_message`；作为设置页开关的初始值，页面上的改动只在本次运行生效 |
@@ -70,7 +88,15 @@ dsh plugin --profile <profile> add @hualiong/dsh-qq-lite
 node --test test/
 ```
 
-`test/` 覆盖最终答案提取、Markdown 分段与回退、状态持久化、配置发现与保存、扫码状态机、管理接口、模型列表/切换、以及 `askSession`/`bridge` 的回合归属与命令路由。
+`test/` 覆盖最终答案提取、Markdown 分段与回退、状态持久化、配置发现与保存、旧目录迁移、扫码状态机、管理接口、模型列表/切换、指令面板维护，以及 `askSession`/`bridge` 的回合归属与命令路由。
+
+## 发布
+
+```shell
+npm publish --access public
+```
+
+GitHub Actions 使用 `NPM_TOKEN` secret 发布（`npm publish --provenance --access public`）。
 
 ## 许可
 

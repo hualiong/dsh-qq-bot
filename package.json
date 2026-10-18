@@ -1,6 +1,6 @@
 {
-  "name": "@hualiong/dsh-qq-lite",
-  "version": "0.3.3",
+  "name": "@hualiong/dsh-qq-bot",
+  "version": "0.4.0",
   "description": "Minimal QQ-only IM bridge for DeepSeek Harness: bind one session to QQ, /new in a default workspace, relay only the final answer, and push from any session through the send_qq_message tool. Configured in Settings → QQ bot.",
   "icon": "./icon.svg",
   "type": "module",
@@ -20,11 +20,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hualiong/dsh-qq-lite.git"
+    "url": "git+https://github.com/hualiong/dsh-qq-bot.git"
   },
-  "homepage": "https://github.com/hualiong/dsh-qq-lite#readme",
+  "homepage": "https://github.com/hualiong/dsh-qq-bot#readme",
   "bugs": {
-    "url": "https://github.com/hualiong/dsh-qq-lite/issues"
+    "url": "https://github.com/hualiong/dsh-qq-bot/issues"
   },
   "author": "hualiong",
   "files": [

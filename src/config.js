@@ -1,7 +1,7 @@
 // Bot configuration: our own single-bot store first, the row config next, and
 // the installed dsh-im QQ integration as a zero-config fallback.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -12,11 +12,35 @@ export function dshHome() {
 }
 
 export function dataDirFor(config = {}) {
-  return resolve(config.dataDir ?? join(dshHome(), 'integrations', 'dsh-qq-lite'));
+  return resolve(config.dataDir ?? join(dshHome(), 'integrations', 'dsh-qq-bot'));
 }
 
 export function ownConfigPath(config = {}) {
   return join(dataDirFor(config), 'config.json');
+}
+
+/** 0.3.x kept its state under integrations/dsh-qq-lite; 0.4.0 renamed the plugin. */
+export function legacyDataDirFor() {
+  return resolve(join(dshHome(), 'integrations', 'dsh-qq-lite'));
+}
+
+/**
+ * Copy the pre-rename config and state across once. An explicit `dataDir` wins
+ * and is never touched, and files already present in the new directory are
+ * kept so a later start cannot overwrite newer state.
+ */
+export async function migrateLegacyState(config = {}) {
+  if (config.dataDir) return;
+  const source = legacyDataDirFor();
+  const target = dataDirFor(config);
+  await mkdir(target, { recursive: true, mode: 0o700 });
+  for (const file of ['config.json', 'state.json']) {
+    try {
+      await cp(join(source, file), join(target, file), { force: false, errorOnExist: false });
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
 }
 
 async function readJson(path) {

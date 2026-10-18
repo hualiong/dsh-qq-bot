@@ -1,4 +1,4 @@
-// dsh-qq-lite: HOST half. QQ-only bridge for DeepSeek Harness:
+// dsh-qq-bot: HOST half. QQ-only bridge for DeepSeek Harness:
 //   - one DSH session bound to one QQ private chat (sidebar row menu);
 //   - /new [message] creates a session in the configured workspace and binds it;
 //   - a QQ message is relayed as the prompt and only the final answer comes back;
@@ -11,21 +11,21 @@ import z from '@deepseek-ai/schemastery';
 
 import { deleteBot, describeStatus, saveBot } from './bot-config.js';
 import { createBridge } from './bridge.js';
-import { loadOwnConfig, resolveSettings } from './config.js';
+import { loadOwnConfig, migrateLegacyState, resolveSettings } from './config.js';
 import { createProvisioner } from './qq/provision.js';
 import { createQqRuntime } from './qq/runtime.js';
 import { installRpc } from './rpc.js';
 import { createStateStore } from './state.js';
 import { installSendTool } from './tools.js';
 
-export const name = 'dsh-qq-lite';
+export const name = 'dsh-qq-bot';
 export const inject = ['credentials'];
 
 const Config = z.object({
   appId: z.string().description('QQ 机器人 AppID。留空则使用插件页保存的配置或 dsh-im 的 QQ 集成配置。'),
   secretRef: z.string().description('AppSecret 在 DSH 凭据库中的名称。留空则自动推导。'),
   workspace: z.string().description('新建 QQ 会话使用的默认工作区绝对路径。留空则使用 $DSH_HOME/im。'),
-  dataDir: z.string().description('插件状态目录。默认 $DSH_HOME/integrations/dsh-qq-lite。'),
+  dataDir: z.string().description('插件状态目录。默认 $DSH_HOME/integrations/dsh-qq-bot。'),
   ownerOpenId: z.string().description('允许使用机器人的 QQ 用户 openid。留空则第一个发私信的用户自动认领。'),
   replyTimeoutMs: z.number().default(600_000).description('等待单轮回复的最长静默时间（毫秒）。'),
   toolEnabled: z.boolean().default(true).volatile().description('向 Agent 暴露 send_qq_message 工具。'),
@@ -70,7 +70,7 @@ export function apply(ctx, config = {}) {
     try {
       await runtime?.stop();
     } catch (error) {
-      logger.warn?.('[dsh-qq-lite] 停止 QQ 连接失败：', error?.message ?? error);
+      logger.warn?.('[dsh-qq-bot] 停止 QQ 连接失败：', error?.message ?? error);
     }
   }
 
@@ -80,6 +80,7 @@ export function apply(ctx, config = {}) {
     if (remounting) return remounting;
     remounting = (async () => {
       await stopBot();
+      await migrateLegacyState(holder.config);
       holder.own = await loadOwnConfig(holder.config);
       const settings = await resolveSettings(holder.config, holder.own);
       holder.settings = settings;
@@ -110,10 +111,10 @@ export function apply(ctx, config = {}) {
       }
       try {
         await runtime.start();
-        logger.info?.(`[dsh-qq-lite] QQ 已连接（${settings.appId}），默认工作区 ${settings.workspace}，绑定会话 ${state.sessionId ?? '无'}`);
+        logger.info?.(`[dsh-qq-bot] QQ 已连接（${settings.appId}），默认工作区 ${settings.workspace}，绑定会话 ${state.sessionId ?? '无'}`);
       } catch (error) {
         holder.lastError = error?.message ?? String(error);
-        logger.error?.('[dsh-qq-lite] QQ 首次连接失败，后台会继续重试：', holder.lastError);
+        logger.error?.('[dsh-qq-bot] QQ 首次连接失败，后台会继续重试：', holder.lastError);
       }
       if (disposed) await runtime.stop();
     })().finally(() => { remounting = null; });
@@ -134,7 +135,7 @@ export function apply(ctx, config = {}) {
   });
 
   const startup = remount().catch((error) => {
-    logger.error?.('[dsh-qq-lite] 启动失败：', error?.message ?? error);
+    logger.error?.('[dsh-qq-bot] 启动失败：', error?.message ?? error);
   });
   void startup;
 

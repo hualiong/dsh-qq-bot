@@ -1,11 +1,11 @@
-# dsh-qq-lite bundle layer: inserts the QQ bridge plugin row.
+# dsh-qq-bot bundle layer: inserts the QQ bridge plugin row.
 # The row id stays stable so re-installs and profile patches can target it.
 #
 # Credentials are discovered automatically from the existing dsh-im QQ
 # integration ($DSH_HOME/integrations/dsh-qq/config.json + the stored
 # secretRef); override them with `appId` / `secretRef` / `workspace` here.
 - insert:
-    - id: hualiong-dsh-qq-lite
-      name: '@hualiong/dsh-qq-lite'
+    - id: hualiong-dsh-qq-bot
+      name: '@hualiong/dsh-qq-bot'
       config:
         toolEnabled: true

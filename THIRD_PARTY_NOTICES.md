@@ -1,6 +1,6 @@
 # Third-party notices
 
-`dsh-qq-lite` is a trimmed derivative of [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)
+`dsh-qq-bot` is a trimmed derivative of [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)
 (MIT). Files that carry ported code say so in their header:
 
 | File | Origin |

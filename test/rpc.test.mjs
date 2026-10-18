@@ -24,7 +24,7 @@ function fakeProvision() {
 }
 
 async function fixture(t, { sessionId = null, withState = true } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-rpc-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-rpc-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = root;
@@ -50,7 +50,7 @@ async function fixture(t, { sessionId = null, withState = true } = {}) {
   } : null;
 
   const holder = {
-    config: { dataDir: join(root, 'integrations', 'dsh-qq-lite') },
+    config: { dataDir: join(root, 'integrations', 'dsh-qq-bot') },
     logger: { info() {}, warn() {} },
     state,
     own: null,
@@ -79,11 +79,11 @@ async function fixture(t, { sessionId = null, withState = true } = {}) {
   installRpc(ctx, holder);
 
   const call = async (method, payload) => {
-    const response = await ctx.route.fetch(new Request('http://127.0.0.1/api/dsh-qq-lite', {
+    const response = await ctx.route.fetch(new Request('http://127.0.0.1/api/dsh-qq-bot', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        type: 'client-request', rpcId: 'rpc-1', method: 'dsh-qq-lite', payload: { method, payload },
+        type: 'client-request', rpcId: 'rpc-1', method: 'dsh-qq-bot', payload: { method, payload },
       }),
     }));
     assert.equal(response.status, 200);
@@ -100,7 +100,7 @@ test('status reports connection, configuration, binding, and the event counter',
   const { call } = await fixture(t, { sessionId: 'session-1' });
   const result = await call('connection.status', {});
   assert.equal(result.ok, true);
-  assert.equal(result.value.version, '0.3.3');
+  assert.equal(result.value.version, '0.4.0');
   assert.equal(result.value.connected, true);
   assert.equal(result.value.configured, true);
   assert.equal(result.value.toolEnabled, true);

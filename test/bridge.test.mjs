@@ -10,7 +10,7 @@ import { createStateStore } from '../src/state.js';
 const text = (value) => ({ type: 'text', text: value });
 
 async function fixture(t, { workspace, failMarkdown = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-bridge-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
   const sent = [];

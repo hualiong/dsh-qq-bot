@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { deriveBotIdentity, loadOwnConfig, maskAppId, removeOwnConfig, resolveSettings, saveOwnConfig } from '../src/config.js';
+import {
+  deriveBotIdentity, loadOwnConfig, maskAppId, migrateLegacyState, removeOwnConfig, resolveSettings, saveOwnConfig,
+} from '../src/config.js';
 
 async function fixture(t) {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-qq-lite-config-'));
+  const home = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-config-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
@@ -36,7 +38,7 @@ test('reuses the dsh-im QQ integration credentials and workspace', async (t) => 
   assert.equal(settings.appId, 'app-test');
   assert.equal(settings.secretRef, 'DSH_TEST_SECRET');
   assert.equal(settings.workspace, home);
-  assert.equal(settings.dataDir, join(home, 'integrations', 'dsh-qq-lite'));
+  assert.equal(settings.dataDir, join(home, 'integrations', 'dsh-qq-bot'));
   assert.equal(settings.ownerOpenId, null);
   assert.ok(settings.replyTimeoutMs > 0);
 });
@@ -86,6 +88,26 @@ test('the plugin store wins over row config and the dsh-im fallback', async (t) 
 
   await removeOwnConfig({});
   assert.equal(await loadOwnConfig({}), null);
+});
+
+test('the pre-rename state directory is copied once and never overwritten', async (t) => {
+  const home = await fixture(t);
+  const legacy = join(home, 'integrations', 'dsh-qq-lite');
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, 'config.json'), JSON.stringify({ version: 1, appId: 'app-legacy' }));
+  await writeFile(join(legacy, 'state.json'), JSON.stringify({ version: 1, sessionId: 'session-legacy' }));
+
+  await migrateLegacyState({});
+  const target = join(home, 'integrations', 'dsh-qq-bot');
+  assert.equal(JSON.parse(await readFile(join(target, 'config.json'), 'utf8')).appId, 'app-legacy');
+  assert.equal(JSON.parse(await readFile(join(target, 'state.json'), 'utf8')).sessionId, 'session-legacy');
+
+  await writeFile(join(target, 'state.json'), JSON.stringify({ version: 1, sessionId: 'session-new' }));
+  await migrateLegacyState({});
+  assert.equal(JSON.parse(await readFile(join(target, 'state.json'), 'utf8')).sessionId, 'session-new');
+
+  await migrateLegacyState({ dataDir: join(home, 'explicit') });
+  assert.equal(await readFile(join(home, 'explicit', 'state.json'), 'utf8').catch(() => null), null);
 });
 
 test('the identity derivation matches dsh-im and masks the app id', () => {
