@@ -46,12 +46,11 @@ window.__ModuleLoader__.load({
     const zh = {
       'nav': 'QQ 机器人',
       'title': 'QQ 机器人',
-      'intro': '把 DeepSeek Harness 的会话接到 QQ 私聊：绑定一个会话后，Agent 的最终回答会推送到 QQ；也可以在 QQ 里用 /new 新建会话。',
+      'intro': '把任何一个 DeepSeek Harness 的会话接入 QQ Bot 聊天',
       'loading': '正在读取接入状态…',
       'menu.bind': '绑定 QQ 会话',
       'menu.unbind': '解绑 QQ 会话',
       'row.bound': 'QQ 会话',
-      'status.title': '当前接入',
       'status.on': '已连接',
       'status.off': '未连接',
       'status.botFallback': 'QQ 机器人',
@@ -80,10 +79,10 @@ window.__ModuleLoader__.load({
       'manual.secretConfigured': '已配置密钥',
       'manual.secretUnconfigured': '未配置密钥',
       'manual.workspace': '默认工作区',
-      'manual.workspaceHint': '/new 新建会话使用的绝对路径；留空使用 $DSH_HOME/im。',
+      'manual.workspaceHint': '/new 新建会话使用的绝对路径；留空使用 $DSH_HOME/im',
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.label': '允许 Agent 主动推送消息',
-      'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话。',
+      'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话',
       'workspace.title': '默认工作区',
       'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im。',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
@@ -101,12 +100,11 @@ window.__ModuleLoader__.load({
     const en = {
       'nav': 'QQ bot',
       'title': 'QQ bot',
-      'intro': 'Push DeepSeek Harness sessions to a QQ private chat. Bind one session and the Agent’s final answers land in QQ; /new starts a new session from QQ.',
+      'intro': 'Connect any DeepSeek Harness session to a QQ Bot chat',
       'loading': 'Reading the connection state…',
       'menu.bind': 'Bind QQ session',
       'menu.unbind': 'Unbind QQ session',
       'row.bound': 'QQ session',
-      'status.title': 'Connection',
       'status.on': 'Connected',
       'status.off': 'Disconnected',
       'status.botFallback': 'QQ bot',
@@ -256,14 +254,14 @@ window.__ModuleLoader__.load({
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
-        maxWidth: 760,
+        maxWidth: 720,
         color: 'var(--dsw-alias-label-primary, #e6e6e6)',
       },
-      heading: { margin: 0, fontSize: 18, fontWeight: 600, lineHeight: '26px' },
+      heading: { margin: 0, fontSize: 18, fontWeight: 600, lineHeight: 'normal' },
       intro: {
         margin: 0,
         fontSize: 13,
-        lineHeight: 1.6,
+        lineHeight: 'normal',
         color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
       },
       card: {
@@ -280,7 +278,7 @@ window.__ModuleLoader__.load({
       cardDesc: {
         margin: 0,
         fontSize: 12,
-        lineHeight: 1.6,
+        lineHeight: 1.5,
         color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
       },
       stateLine: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px' },
@@ -315,6 +313,7 @@ window.__ModuleLoader__.load({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
       },
+      metaTags: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
       pushRow: { display: 'flex', alignItems: 'center', gap: 16 },
       pushText: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 },
       pushLabel: { margin: 0, fontSize: 13, fontWeight: 500, lineHeight: '20px' },
@@ -608,12 +607,11 @@ window.__ModuleLoader__.load({
       const botIntro = typeof botInfo?.intro === 'string' && botInfo.intro.trim()
         ? botInfo.intro.trim()
         : null
-      // The bot API only exposes a self profile when the bot has one; without an
-      // intro line fall back to the two stable identifiers, unmasked AppID included.
-      const botMeta = botIntro ?? (status === null ? '' : [
+      // Without an intro line the two stable identifiers stand in as Tag badges.
+      const botMetaTags = botIntro !== null ? [] : [
         botInfo?.uin ? `QQ ${botInfo.uin}` : null,
-        status.appId ? `AppID ${status.appId}` : null,
-      ].filter(Boolean).join(' · '))
+        status?.appId ? `AppID ${status.appId}` : null,
+      ].filter(Boolean)
       const badge = status === null || !hasBot ? null
         : !configured ? { tone: 'warning', text: t('status.pendingBadge') }
           : status.connected ? { tone: 'success', text: t('status.on') }
@@ -631,7 +629,7 @@ window.__ModuleLoader__.load({
         })
         : h('span', { style: styles.avatarFallback }, h(QqGlyph))
 
-      const statusCard = !hasBot ? null : h(Card, { title: t('status.title') },
+      const statusCard = !hasBot ? null : h(Card, null,
         h('div', { style: styles.botRow },
           avatar,
           h('div', { style: styles.botInfo },
@@ -641,7 +639,10 @@ window.__ModuleLoader__.load({
                 title: botInfo?.name ?? undefined,
               }, botInfo?.name || t('status.botFallback')),
               badge ? h(Tag, { tone: badge.tone }, badge.text) : null),
-            botMeta ? h('p', { style: styles.metaLine, title: botMeta }, botMeta) : null,
+            botIntro ? h('p', { style: styles.metaLine, title: botIntro }, botIntro) : null,
+            botMetaTags.length > 0
+              ? h('div', { style: styles.metaTags }, botMetaTags.map((text) => h(Tag, { key: text }, text)))
+              : null,
             status.lastError ? h('p', { style: styles.error }, `${t('status.error')}：${status.lastError}`) : null,
             hasBot && !configured ? h('p', { style: styles.cardDesc }, t('status.pending')) : null,
             configured && error ? h('p', { style: styles.error }, error) : null,

@@ -16,11 +16,24 @@ test('the push tool reads runtime and state at call time', async () => {
   holder.state = { target: { scope: 'c2c', targetId: 'openid-a' } };
   holder.runtime = {
     ready: true,
-    async sendText(target, text) { sent.push([target, text]); },
+    async sendMarkdown(target, text) { sent.push([target, text]); },
   };
   const result = await definition.execute({ text: 'hi' });
   assert.deepEqual(sent, [[{ scope: 'c2c', targetId: 'openid-a' }, 'hi']]);
   assert.match(result, /已推送到 QQ/u);
+});
+
+test('the push tool sends markdown and counts the chunks', async () => {
+  let definition;
+  const ctx = { tools: { register: (registered) => { definition = registered; return () => {}; } } };
+  const holder = {
+    state: { target: { scope: 'c2c', targetId: 'openid-a' } },
+    runtime: { ready: true, async sendMarkdown() { /* delivered */ } },
+  };
+  installSendTool(ctx, holder);
+  const result = await definition.execute({ text: '**hi**' });
+  assert.match(result, /（1 条）/u);
+  assert.match(definition.description, /Markdown/u);
 });
 
 test('the push tool refuses while the bot is disconnected', async () => {
