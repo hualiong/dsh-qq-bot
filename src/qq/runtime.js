@@ -14,7 +14,27 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
   let bot = null;
   let stopping = false;
   let retryTimer = null;
+  let profile = null;
   const status = { ready: false, state: 'idle', lastError: null };
+
+  // Public bot profile for the settings page (/users/@me): nickname, avatar,
+  // and the share link that carries the bot's QQ number. Decoration only — a
+  // failure leaves the page without the avatar, never blocks the connection.
+  const readProfile = (instance) => {
+    if (typeof instance.api?.get !== 'function') return;
+    instance.api.get('/users/@me').then((me) => {
+      if (bot !== instance) return;
+      profile = {
+        id: me?.id ?? null,
+        name: me?.username ?? null,
+        avatar: me?.avatar ?? null,
+        uin: /robot_uin=(\d+)/.exec(me?.share_url ?? '')?.[1] ?? null,
+        shareUrl: me?.share_url ?? null,
+      };
+    }).catch((error) => {
+      logger.warn?.('[dsh-qq-lite] 读取机器人资料失败：', error?.message ?? error);
+    });
+  };
 
   const scheduleRetry = (error) => {
     if (stopping || retryTimer) return;
@@ -49,10 +69,12 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     instance.on('ready', () => {
       status.ready = true; status.state = 'connected';
       status.lastError = null;
+      readProfile(instance);
       settle.resolve();
     });
     instance.on('resumed', () => {
       status.ready = true; status.state = 'connected';
+      readProfile(instance);
       settle.resolve();
     });
     instance.on('error', (error) => {
@@ -106,6 +128,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
   return {
     get status() { return { ...status }; },
     get ready() { return status.ready; },
+    get profile() { return profile === null ? null : { ...profile }; },
     async start() { stopping = false; await connect(); },
     async stop() {
       stopping = true;
@@ -113,6 +136,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
       retryTimer = null;
       const current = bot;
       bot = null;
+      profile = null;
       status.ready = false;
       status.state = 'stopped';
       try { current?.stop(); } catch { /* already down */ }

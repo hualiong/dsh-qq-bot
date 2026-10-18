@@ -47,7 +47,7 @@ window.__ModuleLoader__.load({
       'status.title': '当前接入',
       'status.on': '已连接',
       'status.off': '未连接',
-      'status.bot': '机器人',
+      'status.botFallback': 'QQ 机器人',
       'status.error': '最近错误',
       'status.pending': '已保存 AppID，还缺 AppSecret：在下方「手动填写」里补上即可完成接入。',
       'connect.title': '接入机器人',
@@ -57,9 +57,9 @@ window.__ModuleLoader__.load({
       'connect.qr': '扫码接入',
       'connect.manual': '手动填写',
       'connect.qrDesc': '用手机 QQ 扫码，确认后自动创建并接入机器人；二维码过期会自动刷新。',
-      'connect.qrStart': '生成二维码',
       'connect.qrStarting': '正在生成二维码…',
       'connect.qrPending': '请用手机 QQ 扫码。',
+      'connect.qrRetry': '重新生成',
       'connect.qrCancel': '取消',
       'connect.qrFailed': '扫码接入失败',
       'connect.qrConnected': 'QQ 机器人已接入。',
@@ -76,22 +76,10 @@ window.__ModuleLoader__.load({
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.title': '消息推送',
       'push.label': '允许 Agent 推送 QQ 消息',
-      'push.description': '关闭后 send_qq_message 会从工具列表中移除；QQ 对话与命令不受影响。',
-      'bind.title': '绑定会话',
-      'bind.description': '在会话列表的「⋯」菜单中选择「绑定 QQ 会话」，该会话的最终回答就会回到 QQ。',
-      'bind.action': '解绑',
-      'bind.current': '当前绑定',
-      'bind.none': '尚未绑定',
+      'push.description': '开启后，任意会话的 Agent 都可以调用 send_qq_message，向绑定的 QQ 聊天推送消息。',
       'workspace.title': '默认工作区',
       'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im。',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
-      'commands.title': 'QQ 命令',
-      'commands.description': '在 QQ 私聊里直接发送这些命令：',
-      'cmd.new': '在默认工作区新建会话并绑定，可附上第一条消息',
-      'cmd.status': '查看机器人、绑定会话与连接状态',
-      'cmd.model': '查看或切换当前会话的模型与推理强度',
-      'cmd.unbind': '解除当前的 QQ 绑定',
-      'cmd.help': '显示命令帮助',
       'save': '保存',
       'saving': '保存中…',
       'saveFailed': '保存失败',
@@ -112,7 +100,7 @@ window.__ModuleLoader__.load({
       'status.title': 'Connection',
       'status.on': 'Connected',
       'status.off': 'Disconnected',
-      'status.bot': 'Bot',
+      'status.botFallback': 'QQ bot',
       'status.error': 'Last error',
       'status.pending': 'The AppID is saved but the AppSecret is missing. Add it under “Manual setup” to finish connecting.',
       'connect.title': 'Connect a bot',
@@ -122,9 +110,9 @@ window.__ModuleLoader__.load({
       'connect.qr': 'Scan to connect',
       'connect.manual': 'Manual setup',
       'connect.qrDesc': 'Scan with mobile QQ to create and connect the bot; the code refreshes itself when it expires.',
-      'connect.qrStart': 'Show QR code',
       'connect.qrStarting': 'Creating the QR code…',
       'connect.qrPending': 'Scan with mobile QQ.',
+      'connect.qrRetry': 'Show a new code',
       'connect.qrCancel': 'Cancel',
       'connect.qrFailed': 'QR connect failed',
       'connect.qrConnected': 'QQ bot connected.',
@@ -141,22 +129,10 @@ window.__ModuleLoader__.load({
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.title': 'Message push',
       'push.label': 'Let Agents push to QQ',
-      'push.description': 'When off, send_qq_message is removed from the tool list; QQ chats and commands are unaffected.',
-      'bind.title': 'Bound session',
-      'bind.description': 'Pick “Bind QQ session” in a session’s “⋯” menu; that session’s final answers come back to QQ.',
-      'bind.action': 'Unbind',
-      'bind.current': 'Current binding',
-      'bind.none': 'Not bound',
+      'push.description': 'When on, any session’s Agent can call send_qq_message to push messages to the bound QQ chat.',
       'workspace.title': 'Default workspace',
       'workspace.description': 'Sessions started with /new are created in this directory; blank falls back to $DSH_HOME/im.',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
-      'commands.title': 'QQ commands',
-      'commands.description': 'Send these in the QQ private chat:',
-      'cmd.new': 'Create and bind a session in the default workspace, with an optional first message',
-      'cmd.status': 'Show the bot, bound session, and connection state',
-      'cmd.model': 'Show or switch the bound session’s model and reasoning effort',
-      'cmd.unbind': 'Drop the current QQ binding',
-      'cmd.help': 'Show command help',
       'save': 'Save',
       'saving': 'Saving…',
       'saveFailed': 'Save failed',
@@ -166,14 +142,6 @@ window.__ModuleLoader__.load({
       'remove.confirm': 'Remove',
       'remove.cancel': 'Cancel',
     }
-
-    const COMMANDS = [
-      ['/new [消息]', 'cmd.new'],
-      ['/status', 'cmd.status'],
-      ['/model [provider/model [effort]]', 'cmd.model'],
-      ['/unbind', 'cmd.unbind'],
-      ['/help', 'cmd.help'],
-    ]
 
     async function callRpc(connection, method, payload = {}, signal) {
       if (!connection?.rpc?.call) throw new Error('DSH 连接不可用')
@@ -315,21 +283,38 @@ window.__ModuleLoader__.load({
           ? 'var(--dsw-alias-state-success-primary, #21a67a)'
           : 'var(--dsw-alias-label-tertiary, #8a8a8e)',
       }),
-      rows: { display: 'grid', gap: 6 },
-      row: {
+      botRow: { display: 'flex', alignItems: 'center', gap: 12 },
+      avatar: { width: 44, height: 44, borderRadius: 22, objectFit: 'cover', display: 'block', flex: 'none' },
+      avatarFallback: {
         display: 'flex',
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
-        gap: 16,
-        fontSize: 13,
-        lineHeight: '20px',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flex: 'none',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.14))',
       },
-      rowLabel: { color: 'var(--dsw-alias-label-tertiary, #8a8a8e)', flex: 'none' },
-      rowValue: {
-        color: 'var(--dsw-alias-label-primary, #e6e6e6)',
-        textAlign: 'right',
-        wordBreak: 'break-all',
+      botInfo: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 },
+      botName: {
+        margin: 0,
+        fontSize: 15,
+        fontWeight: 600,
+        lineHeight: '22px',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
       },
+      metaLine: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        flexWrap: 'wrap',
+        fontSize: 12,
+        lineHeight: '18px',
+        color: 'var(--dsw-alias-label-tertiary, #8a8a8e)',
+      },
+      sep: { opacity: 0.6 },
       toggleRow: {
         display: 'flex',
         alignItems: 'center',
@@ -338,7 +323,6 @@ window.__ModuleLoader__.load({
         fontSize: 13,
         lineHeight: 1.5,
       },
-      toggleLabel: { flex: 1, minWidth: 0 },
       actions: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
       qrPanel: {
         display: 'flex',
@@ -368,18 +352,6 @@ window.__ModuleLoader__.load({
         fontSize: 13,
         outline: 'none',
       },
-      commands: { display: 'grid', gap: 8 },
-      command: { display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13, lineHeight: '20px' },
-      code: {
-        flex: 'none',
-        fontFamily: 'var(--dsw-alias-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
-        fontSize: 12,
-        padding: '1px 6px',
-        borderRadius: 6,
-        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,.14))',
-        color: 'var(--dsw-alias-label-primary, #e6e6e6)',
-      },
-      commandDesc: { color: 'var(--dsw-alias-label-secondary, #b4b4b4)', minWidth: 0 },
       notice: {
         margin: 0,
         fontSize: 12,
@@ -408,16 +380,6 @@ window.__ModuleLoader__.load({
         ...body)
     }
 
-    function InfoRow({ label, value, title }) {
-      return h('div', { style: styles.row },
-        h('span', { style: styles.rowLabel }, label),
-        h('span', { style: styles.rowValue, title }, value))
-    }
-
-    function shortSession(id) {
-      return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-4)}` : id
-    }
-
     // --- settings page ------------------------------------------------------------
 
     function QqSettingsPage({ t, connection }) {
@@ -431,7 +393,6 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [qrBusy, setQrBusy] = useState(false)
       const [wsBusy, setWsBusy] = useState(false)
-      const [bindBusy, setBindBusy] = useState(false)
       const [toolBusy, setToolBusy] = useState(false)
       const [removeBusy, setRemoveBusy] = useState(false)
       const [error, setError] = useState(null)
@@ -440,6 +401,10 @@ window.__ModuleLoader__.load({
       const [wsNotice, setWsNotice] = useState(null)
       const [qr, setQr] = useState(null)
       const [qrError, setQrError] = useState(null)
+      // Set when the user cancels the QR flow, so the auto-start effect below
+      // does not immediately pop a new code back; cleared on every tab switch.
+      const [qrCancelled, setQrCancelled] = useState(false)
+      const [avatarFailed, setAvatarFailed] = useState(null)
       const [confirmRemove, setConfirmRemove] = useState(false)
 
       const refresh = useCallback(() => callRpc(connection, 'connection.status')
@@ -470,7 +435,7 @@ window.__ModuleLoader__.load({
               clearInterval(timer)
               setQr(null)
               setQrError(null)
-              setNotice(t('connect.qrConnected'))
+              setQrCancelled(false)
               refresh()
             } else if (['failed', 'cancelled', 'expired'].includes(next.status)) {
               clearInterval(timer)
@@ -490,7 +455,7 @@ window.__ModuleLoader__.load({
         return () => { stopped = true; clearInterval(timer) }
       }, [connection, qr?.attemptId, refresh, t])
 
-      const startQr = () => {
+      const startQr = useCallback(() => {
         setQrBusy(true)
         setQrError(null)
         setNotice(null)
@@ -501,12 +466,13 @@ window.__ModuleLoader__.load({
           })
           .catch((failure) => setQrError(failure.message))
           .finally(() => setQrBusy(false))
-      }
+      }, [connection, t])
 
       const cancelQr = () => {
         if (qr?.attemptId) callRpc(connection, 'provision.cancel', { attemptId: qr.attemptId }).catch(() => undefined)
         setQr(null)
         setQrError(null)
+        setQrCancelled(true)
       }
 
       const appValue = appId === null ? (status?.appId ?? '') : appId
@@ -519,6 +485,15 @@ window.__ModuleLoader__.load({
       const configured = status?.configured === true
       const hasBot = Boolean(status?.appId)
       const toolEnabled = status?.toolEnabled !== false
+      const botInfo = status?.bot ?? null
+      const botAvatar = typeof botInfo?.avatar === 'string' ? botInfo.avatar : null
+
+      // Opening the QR tab already shows a code: an attempt is cheap and the
+      // code refreshes itself, so the page never asks the user to press first.
+      useEffect(() => {
+        if (configured || mode !== 'qr' || qr || qrBusy || qrError || qrCancelled) return
+        startQr()
+      }, [configured, mode, qr, qrBusy, qrError, qrCancelled, startQr])
 
       const saveManual = async () => {
         setBusy(true)
@@ -568,19 +543,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const unbind = async () => {
-        setBindBusy(true)
-        setError(null)
-        try {
-          await callRpc(connection, 'session.unbind', {})
-          await refresh()
-        } catch (failure) {
-          setError(failure.message)
-        } finally {
-          setBindBusy(false)
-        }
-      }
-
       const toggleTools = async (next) => {
         setToolBusy(true)
         setError(null)
@@ -616,23 +578,51 @@ window.__ModuleLoader__.load({
         && qr.qrCodeDataUrl.length < 2 * 1024 * 1024
         && QR_SOURCE.test(qr.qrCodeDataUrl) ? qr.qrCodeDataUrl : null
 
-      const statusCard = !hasBot ? null : h(Card, {
-        title: t('status.title'),
-        action: h(Button, {
-          onClick: () => setConfirmRemove(true),
-          disabled: removeBusy,
-          style: styles.danger,
-        }, t('remove.button')),
-      },
-        h('div', { style: styles.stateLine },
-          h('span', { style: styles.dot(status.connected === true) }),
-          h('span', null, status.connected ? t('status.on') : t('status.off'))),
-        h('div', { style: styles.rows },
-          h(InfoRow, { label: t('status.bot'), value: status.appIdMasked ?? '—' })),
-        status.lastError ? h('p', { style: styles.error }, `${t('status.error')}：${status.lastError}`) : null,
-        hasBot && !configured ? h('p', { style: styles.cardDesc }, t('status.pending')) : null,
-        configured && error ? h('p', { style: styles.error }, error) : null,
-        configured && notice ? h('p', { style: styles.notice }, notice) : null)
+      const meta = status === null ? [] : [
+        status.connected ? t('status.on') : t('status.off'),
+        botInfo?.uin ? `QQ ${botInfo.uin}` : null,
+        status.appIdMasked ? `AppID ${status.appIdMasked}` : null,
+      ].filter(Boolean)
+
+      const metaNodes = []
+      if (status !== null) {
+        metaNodes.push(h('span', { style: styles.dot(status.connected === true) }))
+        meta.forEach((piece, index) => {
+          if (index > 0) metaNodes.push(h('span', { key: `${piece}-sep`, style: styles.sep }, '·'))
+          metaNodes.push(h('span', { key: piece }, piece))
+        })
+      }
+
+      // Avatar plus nickname come from the bot's own /users/@me profile; while
+      // the profile is still loading (or missing) the mark and a plain label
+      // stand in, so the card never flashes an empty hole.
+      const avatar = botAvatar !== null && avatarFailed !== botAvatar
+        ? h('img', {
+          src: botAvatar,
+          alt: '',
+          style: styles.avatar,
+          onError: () => setAvatarFailed(botAvatar),
+        })
+        : h('span', { style: styles.avatarFallback }, h(QqGlyph))
+
+      const statusCard = !hasBot ? null : h(Card, { title: t('status.title') },
+        h('div', { style: styles.botRow },
+          avatar,
+          h('div', { style: styles.botInfo },
+            h('p', {
+              style: styles.botName,
+              title: botInfo?.name ?? undefined,
+            }, botInfo?.name || t('status.botFallback')),
+            h('div', { style: styles.metaLine }, ...metaNodes),
+            status.lastError ? h('p', { style: styles.error }, `${t('status.error')}：${status.lastError}`) : null,
+            hasBot && !configured ? h('p', { style: styles.cardDesc }, t('status.pending')) : null,
+            configured && error ? h('p', { style: styles.error }, error) : null,
+            configured && notice ? h('p', { style: styles.notice }, notice) : null),
+          h(Button, {
+            onClick: () => setConfirmRemove(true),
+            disabled: removeBusy,
+            style: styles.danger,
+          }, t('remove.button'))))
 
       const qrPane = h(React.Fragment, null,
         h('p', { style: styles.cardDesc }, t('connect.qrDesc')),
@@ -640,9 +630,9 @@ window.__ModuleLoader__.load({
           h('img', { src: qrSource, alt: t('connect.qr'), style: styles.qr }),
           h('p', { style: styles.cardDesc }, t('connect.qrPending')),
           h(Button, { onClick: cancelQr }, t('connect.qrCancel')))
-          : h('div', { style: styles.actions },
-            h(Button, { variant: 'primary', onClick: startQr, disabled: qrBusy },
-              qrBusy || qr ? t('connect.qrStarting') : t('connect.qrStart'))),
+          : qrError ? h('div', { style: styles.actions },
+            h(Button, { variant: 'primary', onClick: startQr, disabled: qrBusy }, t('connect.qrRetry')))
+            : h('p', { style: styles.cardDesc }, t('connect.qrStarting')),
         qrError ? h('p', { style: styles.error }, qrError) : null)
 
       const manualForm = h(SettingsForm, {
@@ -705,7 +695,18 @@ window.__ModuleLoader__.load({
             { value: 'qr', label: t('connect.qr') },
             { value: 'manual', label: t('connect.manual') },
           ],
-          onChange: (next) => { setMode(next); setError(null); setQrError(null) },
+          onChange: (next) => {
+            setMode(next)
+            setError(null)
+            setQrError(null)
+            setQrCancelled(false)
+            // Leaving the QR tab abandons the pending attempt instead of
+            // keeping a live login flow around while the user types.
+            if (next !== 'qr' && qr?.attemptId) {
+              callRpc(connection, 'provision.cancel', { attemptId: qr.attemptId }).catch(() => undefined)
+              setQr(null)
+            }
+          },
         }),
         mode === 'qr'
           ? qrPane
@@ -720,24 +721,12 @@ window.__ModuleLoader__.load({
         description: t('push.description'),
       },
         h('div', { style: styles.toggleRow },
-          h('span', { style: styles.toggleLabel }, t('push.label')),
+          h('span', null, t('push.label')),
           h(Switch, {
             checked: toolEnabled,
             disabled: toolBusy,
             label: t('push.label'),
             onChange: toggleTools,
-          })))
-
-      const bindCard = !configured ? null : h(Card, {
-        title: t('bind.title'),
-        description: t('bind.description'),
-        action: h(Button, { onClick: unbind, disabled: bindBusy || !status.sessionId }, t('bind.action')),
-      },
-        h('div', { style: styles.rows },
-          h(InfoRow, {
-            label: t('bind.current'),
-            value: status.sessionId ? shortSession(status.sessionId) : t('bind.none'),
-            title: status.sessionId ?? undefined,
           })))
 
       const workspaceCard = !configured ? null : h(Card, {
@@ -766,15 +755,6 @@ window.__ModuleLoader__.load({
         wsError ? h('p', { style: styles.error }, `${t('saveFailed')}：${wsError}`) : null,
         wsNotice ? h('p', { style: styles.notice }, wsNotice) : null)
 
-      const commandsCard = h(Card, {
-        title: t('commands.title'),
-        description: t('commands.description'),
-      },
-        h('div', { style: styles.commands },
-          ...COMMANDS.map(([command, key]) => h('div', { key: command, style: styles.command },
-            h('code', { style: styles.code }, command),
-            h('span', { style: styles.commandDesc }, t(key))))))
-
       const removeModal = h(Modal, {
         open: confirmRemove,
         onClose: () => setConfirmRemove(false),
@@ -797,9 +777,7 @@ window.__ModuleLoader__.load({
           statusCard,
           connectArea,
           pushCard,
-          bindCard,
           workspaceCard,
-          commandsCard,
         ]
 
       return h('div', { style: styles.page },

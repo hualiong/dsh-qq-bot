@@ -27,12 +27,19 @@ export async function describeStatus(ctx, holder) {
     }
   }
   const runtime = holder.runtime?.status ?? { ready: false, state: holder.own ? 'stopped' : 'unconfigured', lastError: null };
+  const profile = holder.runtime?.profile ?? null;
   return {
     configured: Boolean(settings.appId && secretConfigured),
     appId: settings.appId ?? null,
     appIdMasked: maskAppId(settings.appId),
     secretConfigured,
     toolEnabled: holder.toolEnabled !== false,
+    bot: profile === null ? null : {
+      name: profile.name,
+      avatar: profile.avatar,
+      uin: profile.uin,
+      shareUrl: profile.shareUrl,
+    },
     workspace: settings.workspace,
     sessionId: holder.state?.sessionId ?? null,
     connected: runtime.ready === true,
