@@ -3,7 +3,8 @@
 //   - /new [message] creates a session in the configured workspace and binds it;
 //   - a QQ message is relayed as the prompt and only the final answer comes back;
 //   - send_qq_message lets any session push text to the bound QQ chat;
-//   - the plugin page configures the bot (manual AppID/Secret or QR login).
+//   - the settings page (Settings → QQ bot) configures the bot: manual
+//     AppID/Secret or QR login, the push toggle, and the default workspace.
 import { join } from 'node:path';
 
 import z from '@deepseek-ai/schemastery';
@@ -45,6 +46,10 @@ export function apply(ctx, config = {}) {
     runtime: null,
     bridge: null,
     lastError: null,
+    // Runtime push-tool switch owned by the settings page; the config field is
+    // only the initial value, exactly like the old volatile one.
+    toolEnabled: readRef(config.toolEnabled) !== false,
+    syncTools: null,
     // Diagnostic counters for /status: proves the global session event feed
     // reaches this plugin without waiting for a turn timeout.
     events: { count: 0, lastType: null },
@@ -147,15 +152,13 @@ export function apply(ctx, config = {}) {
   ctx.inject(['tools'], (sub) => {
     let dispose = null;
     const sync = () => {
-      const enabled = readRef(config.toolEnabled) !== false;
+      const enabled = holder.toolEnabled !== false;
       if (enabled && !dispose) dispose = installSendTool(sub, holder);
       else if (!enabled && dispose) { dispose(); dispose = null; }
     };
+    holder.syncTools = sync;
     sync();
-    sub.effect(() => () => { dispose?.(); dispose = null; });
-    // The volatile switch commits into the running config reference; this
-    // notification is what makes the tool appear/disappear without a remount.
-    ctx.effect(() => ctx.on('loader/volatile-update', sync));
+    sub.effect(() => () => { holder.syncTools = null; dispose?.(); dispose = null; });
   });
 }
 

@@ -6,7 +6,7 @@ import { sessionExists } from './dsh.js';
 
 const CHANNEL = 'dsh-qq-lite';
 const PATH = `/api/${CHANNEL}`;
-const VERSION = '0.2.4'; // keep in step with package.json; shown in the status payload
+const VERSION = '0.3.0'; // keep in step with package.json; shown in the status payload
 
 function reply(rpcId, result) {
   const value = result.ok === false
@@ -40,6 +40,13 @@ export function installRpc(ctx, holder) {
     if (method === 'provision.cancel') {
       const value = holder.provision.cancel(payload?.attemptId);
       return value ? ok(value) : fail('bad-request', '该扫码任务已失效。');
+    }
+
+    if (method === 'tools.set') {
+      if (typeof payload?.enabled !== 'boolean') return fail('bad-request', 'enabled 必须是布尔值。');
+      holder.toolEnabled = payload.enabled;
+      holder.syncTools?.();
+      return status();
     }
 
     const state = holder.state;

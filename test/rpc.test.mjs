@@ -54,6 +54,9 @@ async function fixture(t, { sessionId = null, withState = true } = {}) {
     logger: { info() {}, warn() {} },
     state,
     own: null,
+    toolEnabled: true,
+    syncTools() { holder.toolSyncs += 1; },
+    toolSyncs: 0,
     settings: { workspace: 'C:\\workspace', appId: APP_ID, secretRef: identity.secretRef },
     runtime: { status: { ready: true, state: 'connected', lastError: null } },
     events: { count: 5, lastType: 'turn/end' },
@@ -97,9 +100,10 @@ test('status reports connection, configuration, binding, and the event counter',
   const { call } = await fixture(t, { sessionId: 'session-1' });
   const result = await call('connection.status', {});
   assert.equal(result.ok, true);
-  assert.equal(result.value.version, '0.2.4');
+  assert.equal(result.value.version, '0.3.0');
   assert.equal(result.value.connected, true);
   assert.equal(result.value.configured, true);
+  assert.equal(result.value.toolEnabled, true);
   assert.equal(result.value.appId, APP_ID);
   assert.equal(result.value.appIdMasked, '190•••');
   assert.equal(result.value.secretConfigured, true);
@@ -182,4 +186,23 @@ test('provision endpoints forward the single attempt', async (t) => {
 
   const cancelled = await call('provision.cancel', { attemptId: 'attempt-1' });
   assert.equal(cancelled.value.status, 'cancelled');
+});
+
+test('tools.set flips the runtime push switch without a remount', async (t) => {
+  const { holder, call } = await fixture(t);
+  const off = await call('tools.set', { enabled: false });
+  assert.equal(off.ok, true);
+  assert.equal(off.value.toolEnabled, false);
+  assert.equal(holder.toolEnabled, false);
+  assert.equal(holder.toolSyncs, 1);
+  assert.equal(holder.remounts, 0);
+
+  const on = await call('tools.set', { enabled: true });
+  assert.equal(on.value.toolEnabled, true);
+  assert.equal(holder.toolEnabled, true);
+  assert.equal(holder.toolSyncs, 2);
+
+  const bogus = await call('tools.set', { enabled: 'yes' });
+  assert.equal(bogus.ok, false);
+  assert.equal(bogus.error.code, 'bad-request');
 });

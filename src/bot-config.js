@@ -32,6 +32,7 @@ export async function describeStatus(ctx, holder) {
     appId: settings.appId ?? null,
     appIdMasked: maskAppId(settings.appId),
     secretConfigured,
+    toolEnabled: holder.toolEnabled !== false,
     workspace: settings.workspace,
     sessionId: holder.state?.sessionId ?? null,
     connected: runtime.ready === true,

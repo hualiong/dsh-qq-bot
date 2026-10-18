@@ -10,8 +10,8 @@
 - **`/model`**：列出可用模型（供应商 key、模型 key、思考挡位 id），当前模型行加粗；`/model <供应商>/<模型> [挡位]` 切换当前会话模型，例如 `/model deepseek-account/deepseek-flash high`。
 - **会话行 QQ 标记**：被绑定的会话在侧栏标题前显示蓝色的 QQ 机器人图标。
 - **只回传最终答案**：QQ 消息作为 prompt 进入绑定会话；只把该轮「最后一个工具调用之后的最终文本」推回 QQ，不推思考链和中间步骤。
-- **`send_qq_message` 工具**：任意会话的 Agent 都可调用，向最近说话的 QQ 聊天主动推送纯文本；可在插件详细页关闭。
-- **插件详细页配置机器人**：未接入时显示扫码接入 / 手动填写 AppID+AppSecret；已接入后只显示两行机器人信息与「移除接入」，开关和按钮两端对齐；界面复用官方设置字段组件。指令回复统一使用 Markdown（平台拒绝时自动回退纯文本）。
+- **`send_qq_message` 工具**：任意会话的 Agent 都可调用，向最近说话的 QQ 聊天主动推送纯文本；可在「设置 → QQ机器人」里关闭。
+- **设置页配置机器人**：「设置」中新增独立的「QQ机器人」页。未接入时用扫码接入 / 手动填写 AppID+AppSecret 两条路径；已接入后展示连接状态、机器人 AppID、绑定会话，并集中提供消息推送开关、默认工作区与 QQ 命令速查；界面复用官方设置页组件与设计变量。指令回复统一使用 Markdown（平台拒绝时自动回退纯文本）。
 
 ## 安装
 
@@ -21,22 +21,22 @@ dsh plugin --profile <profile> add @hualiong/dsh-qq-lite
 
 也可以从仓库安装：`dsh plugin --profile <profile> add github:hualiong/dsh-qq-lite`，或在插件页面「添加插件」里填包名／仓库地址。
 
-安装后插件行是 `hualiong-dsh-qq-lite`，默认启用；在插件详细页（Configure）里接入 QQ 机器人。
+安装后插件行是 `hualiong-dsh-qq-lite`，默认启用；在「设置 → QQ机器人」里接入 QQ 机器人。
 
 ## 配置
 
-首次使用推荐在「插件 → QQ机器人 → 配置」里**扫码接入**；也可以手动填写已有机器人的 AppID/AppSecret。插件自己保存的配置在 `$DSH_HOME/integrations/dsh-qq-lite/config.json`，AppSecret 只写进 DSH 凭据库（`DSH_QQBOT_APP_SECRET_<sha256(appId) 前 24 位大写>`，与 dsh-im 的命名一致）。
+首次使用推荐在「设置 → QQ机器人」里**扫码接入**；也可以手动填写已有机器人的 AppID/AppSecret。插件自己保存的配置在 `$DSH_HOME/integrations/dsh-qq-lite/config.json`，AppSecret 只写进 DSH 凭据库（`DSH_QQBOT_APP_SECRET_<sha256(appId) 前 24 位大写>`，与 dsh-im 的命名一致）。
 
 未配置时会退回 dsh-im 的 QQ 集成（`$DSH_HOME/integrations/dsh-qq/config.json`）作为零配置来源。行配置里的字段仅作为可选覆盖：
 
 | 字段 | 说明 |
 | --- | --- |
-| `appId` / `secretRef` | 覆盖插件页保存的 AppID 与凭据名 |
+| `appId` / `secretRef` | 覆盖设置页保存的 AppID 与凭据名 |
 | `workspace` | `/new` 使用的默认工作区绝对路径 |
 | `dataDir` | 插件状态目录，默认 `$DSH_HOME/integrations/dsh-qq-lite` |
 | `ownerOpenId` | 允许使用机器人的 QQ 用户 openid；留空则第一个发私信的人自动认领（扫码接入会记录扫码人） |
 | `replyTimeoutMs` | 单轮回复的最长静默时间，默认 10 分钟 |
-| `toolEnabled` | 是否向 Agent 暴露 `send_qq_message`，可在插件页随时开关 |
+| `toolEnabled` | 是否向 Agent 暴露 `send_qq_message`；作为设置页开关的初始值，页面上的改动只在本次运行生效 |
 
 ## QQ 命令
 
