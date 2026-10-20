@@ -1,8 +1,8 @@
-// Inbound QQ messages: owner claim, dedupe, the four commands, and the
+// Inbound QQ messages: owner claim, dedupe, the slash commands, and the
 // request/response relay for ordinary text. One prompt at a time per chat, so
 // answer order matches message order.
 import { ALIASES, COMMANDS } from './commands.js';
-import { askSession, createSession, turnFailureText, userFacingError } from './dsh.js';
+import { askSession, createSession, listWorkspaceSessions, turnFailureText, userFacingError } from './dsh.js';
 import { modelListText, switchModel } from './model-command.js';
 
 const HELP = [
@@ -13,7 +13,23 @@ const HELP = [
   '在 QQ 输入 `/` 可打开指令面板；直接发送文字即可与绑定的 DSH 会话对话。',
 ].join('\n');
 
-const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 /new 新建一个。';
+const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 /new 新建、/rebind 切换一个。';
+
+// The list rows carry the full session id, so a switch is always a copy-paste
+// of the id the user just read; no positional references to a stale snapshot.
+function rebindListText(rows, currentId) {
+  if (!rows.length) return '当前工作区没有可绑定的会话，发送 /new 新建一个。';
+  const lines = ['**可绑定会话**', ''];
+  for (const row of rows) {
+    const title = row.projections?.values?.title || '（无标题）';
+    const updated = new Date(row.updatedAt).toLocaleString('zh-CN',
+      { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    lines.push(`- ${title}｜${updated}${row.sessionId === currentId ? '｜**当前**' : ''}`);
+    lines.push(`  \`${row.sessionId}\``);
+  }
+  lines.push('', '切换：`/rebind <会话ID>`');
+  return lines.join('\n');
+}
 
 // QQ c2c passive replies stay valid for 60 minutes (4 replies per msg_id);
 // after that a reply must be proactive (no msgId). 55 minutes keeps a margin.
@@ -140,9 +156,21 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         return sendMarkdown(message, userFacingError(error));
       }
     }
-    if (name === '/unbind') {
-      await state.setSession(null);
-      return sendMarkdown(message, '已解除 QQ 绑定。');
+    if (name === '/rebind') {
+      let rows;
+      try {
+        rows = await listWorkspaceSessions(ctx, settings.workspace);
+      } catch (error) {
+        logger.warn?.('[dsh-qq-bot] 读取会话列表失败：', error?.message ?? error);
+        return sendMarkdown(message, userFacingError(error));
+      }
+      if (!args) return sendMarkdown(message, rebindListText(rows, state.sessionId));
+      const ref = args.trim();
+      const picked = rows.find((row) => row.sessionId === ref) ?? null;
+      if (!picked) return sendMarkdown(message, `没有找到会话 \`${ref}\`。发送 /rebind 查看列表。`);
+      if (picked.sessionId === state.sessionId) return sendMarkdown(message, '本聊天已经绑定在这个会话。');
+      await state.setSession(picked.sessionId);
+      return sendMarkdown(message, `已切换至 **${picked.projections?.values?.title || '（无标题）'}**`);
     }
     return sendMarkdown(message, `未知命令：\`${name}\`\n\n${HELP}`);
   }

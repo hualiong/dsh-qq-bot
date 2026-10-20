@@ -1,5 +1,5 @@
-// DSH side of the bridge: create a session in a workspace, submit a prompt, and
-// resolve the turn's final answer. Uses the Host services directly, so no RPC
+// DSH side of the bridge: create or list the workspace's sessions, submit a
+// prompt, and resolve the turn's final answer. Uses the Host services directly, so no RPC
 // hop is involved; turn ownership comes from the prompt request id recorded on
 // the user message, and completion from that same turn's turn/end.
 import { randomUUID } from 'node:crypto';
@@ -33,6 +33,26 @@ export async function createSession(ctx, cwd) {
   }
   const created = await sessions(ctx).create(workspace ? { workspaceId: workspace.id } : { cwd });
   return created.sessionId;
+}
+
+// shortcut: path equality only normalizes separators/trailing slash/case
+// (Windows-style); upgrade if symlink or 8.3 workspace paths ever matter.
+function samePath(left, right) {
+  const norm = (value) => (value ?? '').replace(/[\\/]+/gu, '/').replace(/\/$/u, '').toLowerCase();
+  return norm(left) === norm(right);
+}
+
+/**
+ * The workspace's sessions as /rebind lists them, newest activity first (the
+ * order `list` already gives). Blank rows (hidden in the sidebar until the
+ * first message), subagent rows (not meant to be bound), and archived rows
+ * (registry-global `archivedSessionIds`) are skipped.
+ */
+export async function listWorkspaceSessions(ctx, workspace) {
+  const value = await sessions(ctx).list({}, new AbortController().signal);
+  const archived = ctx.get('workspaceRegistry')?.archivedSessionIds ?? [];
+  return (value?.items ?? []).filter((item) => !item.blank && !item.origin
+    && !archived.includes(item.sessionId) && samePath(item.cwd, workspace));
 }
 
 function isSessionMissing(error) {
@@ -102,7 +122,7 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
 export function userFacingError(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (code === 'reply-timeout') return '等待回复超时：任务可能仍在后台运行，稍后可在 DSH 界面查看结果。';
-  if (code === 'session/not-found') return '绑定的会话已不存在或已归档。请在侧栏会话菜单重新绑定，或发送 /new 新建一个会话。';
+  if (code === 'session/not-found') return '绑定的会话已不存在或已归档。请发送 /rebind 切换到其他会话，或 /new 新建一个。';
   if (code === 'session/agent-busy') return '绑定的会话正忙，请稍后再试。';
   if (code === 'session/model-unavailable') return '该模型当前不可用，请发送 /model 重新选择。';
   return `处理失败：${error?.message ?? String(error)}`;

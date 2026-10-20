@@ -6,7 +6,7 @@ export const COMMANDS = Object.freeze([
   { command: '/new', name: 'new', desc: '新建会话，可附带首轮消息' },
   { command: '/status', name: 'status', desc: '查看连接与绑定状态' },
   { command: '/model', name: 'model', desc: '查看或切换当前会话模型' },
-  { command: '/unbind', name: 'unbind', desc: '解除 QQ 绑定' },
+  { command: '/rebind', name: 'rebind', desc: '列出工作区会话，带参切换绑定' },
   { command: '/help', name: 'help', desc: '显示可用命令' },
 ]);
 
