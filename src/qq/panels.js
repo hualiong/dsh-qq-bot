@@ -8,8 +8,14 @@ const REMARK = 'dsh-qq-bot';
 // 0.3.x registered its panel under the old plugin name; delete it so the QQ
 // client does not show two command panels after the rename.
 const LEGACY_REMARK = 'dsh-qq-lite';
+// The platform rejects a sixth command item with 40030013 (超出数量限制) even
+// though its documentation advertises 20. It also counts a CJK character as two
+// of its "characters", so the documented 14/30 caps mean 7/15 Chinese
+// characters. The panel is discovery only: every command still works when
+// typed, and /help lists the full set.
+export const MAX_PANEL_ITEMS = 5;
 
-export const COMMAND_ITEMS = Object.freeze(COMMANDS.map(({ name, desc }) => ({
+export const COMMAND_ITEMS = Object.freeze(COMMANDS.slice(0, MAX_PANEL_ITEMS).map(({ name, desc }) => ({
   type: 'command',
   name,
   desc,

@@ -79,12 +79,12 @@ window.__ModuleLoader__.load({
       'manual.secretConfigured': '已配置密钥',
       'manual.secretUnconfigured': '未配置密钥',
       'manual.workspace': '默认工作区',
-      'manual.workspaceHint': '/new 新建会话使用的绝对路径；留空使用 $DSH_HOME/im',
+      'manual.workspaceHint': '/bind new 新建会话使用的绝对路径；留空使用 $DSH_HOME/im',
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.label': '允许 Agent 主动推送消息',
       'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话',
       'workspace.title': '默认工作区',
-      'workspace.description': '/new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im',
+      'workspace.description': '/bind new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
       'workspace.pick': '选择目录',
       'workspace.pickFailed': '无法打开目录选择器，请直接输入路径。',
@@ -133,12 +133,12 @@ window.__ModuleLoader__.load({
       'manual.secretConfigured': 'Configured',
       'manual.secretUnconfigured': 'Not configured',
       'manual.workspace': 'Default workspace',
-      'manual.workspaceHint': 'Absolute path used by /new; blank falls back to $DSH_HOME/im.',
+      'manual.workspaceHint': 'Absolute path used by /bind new; blank falls back to $DSH_HOME/im.',
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.label': 'Let Agents push to you',
       'push.description': 'Any session’s Agent can push messages to you with the send_qq_message tool; no bound session required.',
       'workspace.title': 'Default workspace',
-      'workspace.description': 'Sessions started with /new are created in this directory; blank falls back to $DSH_HOME/im.',
+      'workspace.description': 'Sessions started with /bind new are created in this directory; blank falls back to $DSH_HOME/im.',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
       'workspace.pick': 'Choose a folder',
       'workspace.pickFailed': 'Could not open the folder picker; type the path instead.',
@@ -758,9 +758,13 @@ window.__ModuleLoader__.load({
         title: t('workspace.title'),
         description: t('workspace.description'),
         // Save sits in the card header as a text button, matching the removal
-        // button on the bot card (ghost + icon); the input row stays row-shaped.
+        // button on the bot card (ghost + icon). The button keeps its native
+        // 28px height; negative block margins shrink only its layout box, so the
+        // header row stays on the title's 20px line and the focus ring keeps its
+        // normal shape.
         action: h(Button, {
           size: 'sm',
+          style: { marginTop: -4, marginBottom: -4 },
           onClick: saveWorkspace,
           disabled: wsBusy || !workspaceDirty,
           icon: h(IconCheckOutlineRegular, { size: 14 }),

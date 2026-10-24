@@ -8,9 +8,9 @@ import { chunks } from './text.js';
 
 const CONNECT_TIMEOUT_MS = 20_000;
 const RETRY_MS = 15_000;
-// QQ media upload file_type: image / video / voice / file. A sent image and a
-// sent file use the same msg_type 7 path; only this number differs.
-const MEDIA_FILE_TYPES = Object.freeze({ image: 1, video: 2, voice: 3, file: 4 });
+// QQ media upload file_type. A sent image and a sent file use the same
+// msg_type 7 path; only this number differs.
+const MEDIA_FILE_TYPES = Object.freeze({ image: 1, file: 4 });
 
 export function createQqRuntime({ appId, appSecret, onMessage, logger = console, createBot }) {
   const makeBot = createBot ?? ((options) => new QQBot(options));
@@ -156,7 +156,7 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
     // One media message: the SDK uploads the source (URL, local path, buffer or
     // data) and sends the resulting file_info as msg_type 7. `caption` becomes
     // the message's text content.
-    async sendMedia(target, { kind = 'file', source, fileName, caption } = {}) {
+    async sendMedia(target, { kind = 'file', source, caption } = {}) {
       const instance = requireBot();
       if (!source) throw new Error('媒体来源不能为空');
       if (typeof instance.sendMedia !== 'function') throw new Error('当前 QQ SDK 不支持发送图片或文件');
@@ -165,7 +165,6 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
         target,
         fileType: MEDIA_FILE_TYPES[kind] ?? MEDIA_FILE_TYPES.file,
         ...location,
-        fileName,
         content: caption,
       });
     },

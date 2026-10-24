@@ -16,6 +16,39 @@ test('sendMarkdown rejects instead of throwing when no bot is connected', async 
   await assert.rejects(result, /未连接/u);
 });
 
+test('sendMedia forwards the media kind and source to the SDK', async () => {
+  const handlers = new Map();
+  const sent = [];
+  const fake = {
+    api: { async get() { return { id: '1', username: 'bot', avatar: '', share_url: '' }; } },
+    use() { return this; },
+    on(event, handler) { handlers.set(event, handler); return this; },
+    async start() { handlers.get('ready')?.(); },
+    stop() { /* nothing to tear down */ },
+    async sendMedia(options) { sent.push(options); return { ok: true }; },
+  };
+  const runtime = createQqRuntime({
+    appId: 'app-id',
+    appSecret: 'app-secret',
+    onMessage: () => undefined,
+    createBot: () => fake,
+    logger: { warn: () => undefined, info: () => undefined },
+  });
+  await runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const target = { scope: 'c2c', targetId: 'openid' };
+  await runtime.sendMedia(target, { kind: 'image', source: 'https://example.com/a.png', caption: 'hi' });
+  await runtime.sendMedia(target, { source: 'C:\\tmp\\report.pdf' });
+
+  assert.deepEqual(sent, [
+    { target, fileType: 1, url: 'https://example.com/a.png', content: 'hi' },
+    { target, fileType: 4, localPath: 'C:\\tmp\\report.pdf', content: undefined },
+  ]);
+
+  await runtime.stop();
+});
+
 test('the ready handshake publishes the bot profile from /users/@me', async () => {
   const handlers = new Map();
   const fake = {

@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createBridge, parseAnswer, PASSIVE_WINDOW_MS, questionText, replyTargetFor } from '../src/bridge.js';
+import {
+  createBridge, parseAnswer, PASSIVE_WINDOW_MS, QQ_ORIGIN_MARKER, questionText, questionWindowMs, replyTargetFor,
+} from '../src/bridge.js';
 import { createStateStore } from '../src/state.js';
 
 const text = (value) => ({ type: 'text', text: value });
@@ -19,7 +21,7 @@ async function until(check) {
   throw new Error('condition never became true');
 }
 
-async function fixture(t, { workspace, failMarkdown = false, agentsRunning = false, holdPrompt = false } = {}) {
+async function fixture(t, { workspace, failMarkdown = false, agentsRunning = false, holdPrompt = false, holdMarkdown = false, endReason = { kind: 'completed' }, noAnswer = false, sessions = [] } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
@@ -29,6 +31,8 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
   const prompts = [];
   const listeners = new Set();
   let releasePending = null;
+  let releaseMarkdown = null;
+  let markdownHeld = false;
   const agentStatus = () => (agentsRunning ? { status: 'running' } : null);
   const ctx = {
     get: (key) => (key === 'workspaceRegistry'
@@ -37,6 +41,7 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
         : key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
       async create(request) { created.push(request); return { sessionId: 'session-new' }; },
+      async list() { return { items: sessions }; },
       async prompt(request) {
         prompts.push(request);
         // Answer the way the Host would: the prompt's own request id owns a turn.
@@ -47,8 +52,8 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
               listener({ id: request.sessionId }, { seq: 1, type: 'user/message', data: { turn, source: { kind: 'user', rpcId: request.requestId } } });
               listener({ id: request.sessionId }, { seq: 2, type: 'assistant/message', data: { turn, step: 0, message: { content: [{ type: 'reasoning', text: 'secret' }, text('Checking'), { type: 'tool-call', id: 'c', name: 'bash', arguments: '{}' }] } } });
               listener({ id: request.sessionId }, { seq: 3, type: 'tool/call', data: { turn, step: 0, callId: 'c', name: 'bash', arguments: '{}' } });
-              listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text('Answer')] } } });
-              listener({ id: request.sessionId }, { seq: 5, type: 'turn/end', data: { turn, reason: { kind: 'completed' } } });
+              if (!noAnswer) listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text('Answer')] } } });
+              listener({ id: request.sessionId }, { seq: 5, type: 'turn/end', data: { turn, reason: endReason } });
             }
           });
         };
@@ -71,6 +76,10 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
     async sendText(target, value) { sent.push(value); },
     async sendMarkdown(target, value) {
       if (failMarkdown) throw new Error('markdown rejected');
+      if (holdMarkdown && !markdownHeld) {
+        markdownHeld = true;
+        await new Promise((resolve) => { releaseMarkdown = resolve; });
+      }
       markdown.push(value);
     },
   };
@@ -84,7 +93,11 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
     content: 'hello', replyTarget: { scope: 'c2c', targetId: 'openid-a', msgId: 'm-1' },
     ...overrides,
   });
-  return { state, sent, markdown, created, prompts, bridge, message, release: () => releasePending?.() };
+  return {
+    state, sent, markdown, created, prompts, bridge, message,
+    release: () => releasePending?.(),
+    releaseMarkdown: () => releaseMarkdown?.(),
+  };
 }
 
 test('the first private message claims the owner and an unbound chat is told how to bind', async (t) => {
@@ -115,35 +128,77 @@ test('/help and /status answer as markdown without touching the bound session', 
   const { markdown, bridge, message } = await fixture(t);
   await bridge.accept(message({ messageId: 'm-1', content: '/help' }));
   assert.match(markdown[0], /^(\*\*QQ 机器人命令\*\*)/u);
-  assert.match(markdown[0], /`\/new`/u);
+  assert.match(markdown[0], /`\/bind`/u);
   await bridge.accept(message({ messageId: 'm-2', content: '/status' }));
   assert.match(markdown[1], /连接：\*\*已连接\*\*/u);
   assert.match(markdown[1], /绑定会话：`无`/u);
 });
 
-test('/new creates a session in the default workspace and binds it', async (t) => {
+test('/bind new creates a session in the default workspace and binds it', async (t) => {
   const { state, markdown, created, bridge, message } = await fixture(t);
-  await bridge.accept(message({ messageId: 'm-1', content: '/new' }));
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.equal(state.sessionId, 'session-new');
   assert.match(markdown[0], /会话：`session-new`/u);
 });
 
-test('command panel aliases work as the whole message', async (t) => {
-  const { markdown, created, bridge, message } = await fixture(t);
+test('/bind without an argument lists the workspace sessions and marks the bound one', async (t) => {
+  const sessions = [
+    { sessionId: 's-1', cwd: 'C:\\workspace', updatedAt: '2026-10-24T10:00:00Z', projections: { values: { title: '第一个' } } },
+    { sessionId: 's-2', cwd: 'C:\\workspace', updatedAt: '2026-10-24T11:00:00Z', projections: { values: { title: '第二个' } } },
+  ];
+  const { markdown, state, bridge, message } = await fixture(t, { sessions });
+  await state.setSession('s-1');
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind' }));
+  assert.match(markdown[0], /可绑定会话/u);
+  assert.match(markdown[0], /第一个/u);
+  assert.match(markdown[0], /第二个/u);
+  assert.match(markdown[0], /当前/u);
+  assert.match(markdown[0], /\/bind <会话ID>/u);
+});
 
-  await bridge.accept(message({ messageId: 'm-1', content: 'new' }));
+test('/bind <id> switches the bound session and an unknown id explains the list', async (t) => {
+  const sessions = [
+    { sessionId: 's-1', cwd: 'C:\\workspace', updatedAt: '2026-10-24T10:00:00Z', projections: { values: { title: '第一个' } } },
+    { sessionId: 's-2', cwd: 'C:\\workspace', updatedAt: '2026-10-24T11:00:00Z', projections: { values: { title: '第二个' } } },
+  ];
+  const { markdown, state, bridge, message } = await fixture(t, { sessions });
+  await state.setSession('s-1');
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind s-2' }));
+  assert.equal(state.sessionId, 's-2');
+  assert.match(markdown[0], /已切换至 \*\*第二个\*\*/u);
+
+  await bridge.accept(message({ messageId: 'm-2', content: '/bind s-nope' }));
+  assert.match(markdown[1], /没有找到会话 `s-nope`/u);
+  assert.match(markdown[1], /\/bind 查看列表/u);
+});
+
+test('command panel aliases work as the whole message', async (t) => {
+  const sessions = [
+    { sessionId: 's-1', cwd: 'C:\\workspace', updatedAt: '2026-10-24T10:00:00Z', projections: { values: { title: '第一个' } } },
+  ];
+  const { markdown, created, state, bridge, message } = await fixture(t, { sessions });
+  await state.setSession('s-1');
+
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.match(markdown[0], /session-new/u);
 
-  await bridge.accept(message({ messageId: 'm-2', content: '/new' }));
+  await bridge.accept(message({ messageId: 'm-2', content: '/bind new' }));
   assert.equal(created.length, 2, 'the slash form still works');
 
-  await bridge.accept(message({ messageId: 'm-3', content: 'status' }));
+  // A bare alias runs its command; with arguments it stays a prompt.
+  await bridge.accept(message({ messageId: 'm-3', content: 'bind' }));
+  assert.match(markdown.at(-1), /可绑定会话/u);
+
+  await bridge.accept(message({ messageId: 'm-4', content: 'bind new' }));
+  assert.deepEqual(markdown.at(-1), 'Answer', 'the sentence reached the session');
+
+  await bridge.accept(message({ messageId: 'm-5', content: 'status' }));
   assert.match(markdown.at(-1), /连接：\*\*已连接\*\*/u);
 
   // A word that merely starts with an alias is an ordinary prompt.
-  await bridge.accept(message({ messageId: 'm-4', content: 'help me please' }));
+  await bridge.accept(message({ messageId: 'm-6', content: 'help me please' }));
   assert.deepEqual(markdown.at(-1), 'Answer');
 });
 
@@ -159,17 +214,17 @@ test('an alias followed by text stays a prompt instead of running the command', 
   assert.equal(state.sessionId, 'session-1', 'no new session was created');
 });
 
-test('/new uses the registered workspace when the directory is known', async (t) => {
+test('/bind new uses the registered workspace when the directory is known', async (t) => {
   const workspace = { id: 'ws-1', path: 'C:\\workspace' };
   const { created, bridge, message } = await fixture(t, { workspace });
-  await bridge.accept(message({ messageId: 'm-1', content: '/new' }));
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind new' }));
   assert.deepEqual(created, [{ workspaceId: 'ws-1' }]);
 });
 
 
-test('/new with a first message starts the session turn immediately', async (t) => {
+test('/bind new with a first message starts the session turn immediately', async (t) => {
   const { created, markdown, state, bridge, message } = await fixture(t);
-  await bridge.accept(message({ messageId: 'm-1', content: '/new 你好' }));
+  await bridge.accept(message({ messageId: 'm-1', content: '/bind new 你好' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.equal(state.sessionId, 'session-new');
   assert.deepEqual(markdown, ['Answer']);
@@ -198,10 +253,27 @@ test('a reply after the passive window becomes proactive', () => {
 });
 
 test('a bound chat relays only the final answer', async (t) => {
-  const { markdown, bridge, message, state } = await fixture(t);
+  const { markdown, prompts, bridge, message, state } = await fixture(t);
   await state.setSession('session-1');
   await bridge.accept(message());
   assert.deepEqual(markdown, ['Answer']);
+  assert.deepEqual(prompts[0].content, [{ type: 'text', text: `${QQ_ORIGIN_MARKER} hello` }]);
+});
+
+test('a stopped turn without an answer is reported as a quoted notice', async (t) => {
+  const { markdown, bridge, message, state } = await fixture(t, { noAnswer: true, endReason: { kind: 'aborted' } });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.equal(markdown.length, 1);
+  assert.match(markdown[0], /^⚠️ \*\*本轮执行异常中断\*\*\n\n> 本轮已被停止。/u);
+});
+
+test('a failed prompt is reported as a quoted notice', async (t) => {
+  const { markdown, bridge, message, state } = await fixture(t, { noAnswer: true, endReason: { kind: 'error', error: { message: '模型调用失败' } } });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.equal(markdown.length, 1);
+  assert.match(markdown[0], /^⚠️ \*\*本轮执行异常中断\*\*\n\n> 本轮处理失败：模型调用失败/u);
 });
 
 test('a message sent while a turn is running is queued and announced', async (t) => {
@@ -247,6 +319,27 @@ test('an agent question is forwarded to QQ and answered with an option number', 
 
   await bridge.accept(message({ messageId: 'm-2', content: '2' }));
   assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: ['乙'] }] });
+  assert.ok(markdown.some((line) => line.includes('收到，继续执行任务。')), 'the answer is acknowledged in QQ');
+
+  release();
+  await inflight;
+});
+
+test('replying 0 skips the question and is acknowledged', async (t) => {
+  const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '用哪个方案？', options: [{ label: '甲' }, { label: '乙' }] }],
+  });
+  await until(() => markdown.some((line) => line.includes('1. 甲')));
+
+  await bridge.accept(message({ messageId: 'm-2', content: '0' }));
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: [] }] });
+  assert.ok(markdown.some((line) => line.includes('收到，已跳过，继续执行任务。')));
 
   release();
   await inflight;
@@ -282,21 +375,166 @@ test('parseAnswer maps QQ replies to selected labels or custom text', () => {
   const single = { id: 'q1', options: [{ label: '甲' }, { label: '乙' }] };
   assert.deepEqual(parseAnswer(single, '2'), { id: 'q1', selected: ['乙'] });
   assert.deepEqual(parseAnswer(single, '乙'), { id: 'q1', selected: [], custom: '乙' });
-  assert.deepEqual(parseAnswer(single, '跳过'), { id: 'q1', selected: [] });
+  assert.deepEqual(parseAnswer(single, '0'), { id: 'q1', selected: [] }, '"0" skips the question');
+  assert.deepEqual(parseAnswer(single, '跳过'), { id: 'q1', selected: [], custom: '跳过' });
   assert.equal(parseAnswer(single, '9'), undefined, 'out-of-range numbers re-prompt');
+  assert.equal(parseAnswer(single, '2 9'), undefined, 'a stray number must not be dropped silently');
 
   const multi = { id: 'q2', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }] };
   assert.deepEqual(parseAnswer(multi, '1, 3'), { id: 'q2', selected: ['A', 'C'] });
+  assert.equal(parseAnswer(multi, '1 9'), undefined);
   assert.equal(parseAnswer({ ...multi, multiSelect: false }, '1,2'), undefined);
 
   assert.deepEqual(parseAnswer({ id: 'q4', options: [] }, '自由回答'), { id: 'q4', selected: [], custom: '自由回答' });
 });
 
-test('questionText numbers options and mentions skipping', () => {
+test('questionWindowMs stays between one and three minutes', () => {
+  assert.equal(questionWindowMs(600_000), 180_000, 'the default reply timeout caps at three minutes');
+  assert.equal(questionWindowMs(90_000), 60_000, 'a short timeout still leaves a minute');
+  assert.equal(questionWindowMs(undefined), 180_000);
+  assert.equal(questionWindowMs(30_000), 60_000, 'the floor wins over a tiny timeout');
+});
+
+test('a question with no text still yields one answer per question', async (t) => {
+  const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '   ' }],
+  });
+  await until(() => markdown.some((line) => line.includes('模型未提供问题文本')));
+  await bridge.accept(message({ messageId: 'm-2', content: '自己的答案' }));
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: [], custom: '自己的答案' }] });
+
+  release();
+  await inflight;
+});
+
+test('two questions are asked and answered in order', async (t) => {
+  const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [
+      { id: 'q1', question: '用哪个方案？', options: [{ label: '甲' }, { label: '乙' }] },
+      { id: 'q2', question: '补充说明？' },
+    ],
+  });
+  await until(() => markdown.some((line) => line.includes('1/2')));
+  await bridge.accept(message({ messageId: 'm-2', content: '2' }));
+  await until(() => markdown.some((line) => line.includes('2/2')));
+  await bridge.accept(message({ messageId: 'm-3', content: '没有了' }));
+
+  assert.deepEqual(await answered, {
+    answers: [{ id: 'q1', selected: ['乙'] }, { id: 'q2', selected: [], custom: '没有了' }],
+  });
+
+  release();
+  await inflight;
+});
+
+test('a reply that lands while a question prompt uploads is only told to wait', async (t) => {
+  const { markdown, prompts, bridge, message, state, release, releaseMarkdown } = await fixture(t, {
+    holdPrompt: true, holdMarkdown: true,
+  });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '选一个？', options: [{ label: 'A' }, { label: 'B' }] }],
+  });
+  await until(() => releaseMarkdown);
+  // The question is not rendered in QQ yet, so this reply cannot be an answer.
+  await bridge.accept(message({ messageId: 'm-2', content: '1' }));
+  assert.match(markdown.at(-1), /正在发送题目/u);
+
+  releaseMarkdown();
+  await until(() => markdown.some((line) => line.includes('1/1')));
+  await bridge.accept(message({ messageId: 'm-3', content: '1' }));
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: ['A'] }] });
+
+  release();
+  await inflight;
+});
+
+test('an abort while the first question uploads stays handled', async (t) => {
+  const { prompts, bridge, message, state, release, releaseMarkdown } = await fixture(t, {
+    holdPrompt: true, holdMarkdown: true,
+  });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const controller = new AbortController();
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+    signal: controller.signal,
+  });
+  await until(() => releaseMarkdown);
+  // The rejection happens before `await answered` attaches: it must not surface
+  // as an unhandled rejection. Yield a full tick so Node would report it.
+  controller.abort();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseMarkdown();
+
+  assert.equal(await answered, undefined);
+  release();
+  await inflight;
+});
+
+test('a question nobody answers times out and hands control back', async (t) => {
+  const { sent, markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  // The timer is the only thing here that waits: mock it instead of sleeping a minute.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const answered = bridge.userQuestion({
+      agent: { id: 'session-1' },
+      questions: [{ id: 'q1', question: '继续吗？', options: [{ label: '继续' }, { label: '停止' }] }],
+    });
+    // Let the prompt upload and the `await answered` settle first.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(markdown.some((line) => line.includes('1/1')));
+
+    t.mock.timers.tick(questionWindowMs(1_000));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(await answered, undefined, 'the official Web relay answers instead');
+    assert.match(sent.at(-1), /提问等待超时/u);
+  } finally {
+    t.mock.timers.reset();
+  }
+
+  release();
+  await inflight;
+});
+
+test('questionText uses the agent header as the title and documents skipping', () => {
   const rendered = questionText({
     id: 'q', header: '确认', question: '选一个', options: [{ label: 'A', description: 'aa' }, { label: 'B' }],
   }, 1, 2);
+  assert.match(rendered, /^\*\*❓ 确认\*\*$/mu);
+  assert.doesNotMatch(rendered, /Agent 提问/u);
   assert.match(rendered, /1\. A — aa/u);
   assert.match(rendered, /2\. B/u);
-  assert.match(rendered, /跳过/u);
+  assert.match(rendered, /回复序号或直接回复自定义内容/u);
+  assert.match(rendered, /回复「0」跳过这个问题。/u);
+
+  const multi = questionText({
+    id: 'q', question: '多选', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }],
+  }, 1, 1);
+  assert.match(multi, /\*\*❓ Agent 提问（1\/1）\*\*/u);
+  assert.match(multi, /回复序号（多选）或直接回复自定义内容/u);
 });

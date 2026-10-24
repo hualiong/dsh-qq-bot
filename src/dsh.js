@@ -43,7 +43,7 @@ function samePath(left, right) {
 }
 
 /**
- * The workspace's sessions as /rebind lists them, newest activity first (the
+ * The workspace's sessions as `/bind` lists them, newest activity first (the
  * order `list` already gives). Blank rows (hidden in the sidebar until the
  * first message), subagent rows (not meant to be bound), and archived rows
  * (registry-global `archivedSessionIds`) are skipped.
@@ -154,7 +154,7 @@ export async function submitSteer(ctx, sessionId, text) {
 export function userFacingError(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (code === 'reply-timeout') return '等待回复超时：任务可能仍在后台运行，稍后可在 DSH 界面查看结果。';
-  if (code === 'session/not-found') return '绑定的会话已不存在或已归档。请发送 /rebind 切换到其他会话，或 /new 新建一个。';
+  if (code === 'session/not-found') return '绑定的会话已不存在或已归档。请发送 /bind 切换到其他会话，或 /bind new 新建一个。';
   if (code === 'session/agent-busy') return '绑定的会话正忙，请稍后再试。';
   if (code === 'session/model-unavailable') return '该模型当前不可用，请发送 /model 重新选择。';
   return `处理失败：${error?.message ?? String(error)}`;

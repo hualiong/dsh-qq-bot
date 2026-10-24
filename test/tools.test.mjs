@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { installSendTool } from '../src/tools.js';
@@ -81,4 +84,29 @@ test('the push tool validates media arguments before sending', async () => {
   await assert.rejects(definition.execute({ file: 'Z:\\definitely-missing\\report.pdf' }), /本地文件不存在/u);
   assert.match(definition.description, /image/u);
   assert.deepEqual(Object.keys(definition.parameters.properties), ['text', 'image', 'file']);
+});
+
+test('the push tool sends a local file and rejects directories or oversized files', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-tools-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let definition;
+  const ctx = { tools: { register: (registered) => { definition = registered; return () => {}; } } };
+  const media = [];
+  const holder = {
+    state: { target: { scope: 'c2c', targetId: 'openid-a' } },
+    runtime: { ready: true, async sendMedia(target, options) { media.push([target, options]); } },
+  };
+  installSendTool(ctx, holder);
+
+  const local = join(root, 'report.pdf');
+  await writeFile(local, 'hello');
+  await definition.execute({ file: local });
+  assert.deepEqual(media.at(-1), [{ scope: 'c2c', targetId: 'openid-a' }, { kind: 'file', source: local, caption: undefined }]);
+
+  await assert.rejects(definition.execute({ file: root }), /本地路径不是文件/u);
+
+  const oversized = join(root, 'big.pdf');
+  await writeFile(oversized, '');
+  await truncate(oversized, 201 * 1024 * 1024);
+  await assert.rejects(definition.execute({ file: oversized }), /超过 QQ 平台上限（200MB）/u);
 });

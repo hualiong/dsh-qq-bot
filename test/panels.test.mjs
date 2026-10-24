@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { COMMAND_ITEMS, ensureCommandPanel } from '../src/qq/panels.js';
+import { COMMAND_ITEMS, ensureCommandPanel, MAX_PANEL_ITEMS } from '../src/qq/panels.js';
 
 function fakeBot(records) {
   const calls = [];
@@ -53,9 +53,16 @@ test('does nothing for a bot without the raw API', async () => {
   await ensureCommandPanel(null);
 });
 
+// The platform counts a CJK character as two of its "characters", so the
+// documented 30 (desc) / 14 (name) are really 15 / 7 Chinese characters. Go
+// over and the whole panel update is rejected with 40030013.
+const symbolWidth = (value) => [...value].reduce((sum, char) => sum + (char.codePointAt(0) > 0x7f ? 2 : 1), 0);
+
 test('symbols fit the platform limits', () => {
+  assert.ok(COMMAND_ITEMS.length <= MAX_PANEL_ITEMS, 'the platform rejects more than five items');
+  assert.ok(COMMAND_ITEMS.some((item) => item.name === 'interject'), 'interject is discoverable in the panel');
   for (const item of COMMAND_ITEMS) {
-    assert.ok([...item.name].length <= 14, `${item.name} name length`);
-    assert.ok([...item.desc].length <= 30, `${item.name} desc length`);
+    assert.ok(symbolWidth(item.name) <= 14, `${item.name} name width`);
+    assert.ok(symbolWidth(item.desc) <= 30, `${item.name} desc width`);
   }
 });

@@ -16,7 +16,7 @@ const HELP = [
   '在 QQ 输入 `/` 可打开指令面板；直接发送文字即可与绑定的 DSH 会话对话。',
 ].join('\n');
 
-const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 /new 新建、/rebind 切换一个。';
+const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 `/bind new` 新建、`/bind` 查看并切换一个。';
 
 const INTERJECT_USAGE = '用法：`/interject <要插入的消息>`——这条消息会在当前轮次的下一个步骤生效，不打断正在进行的模型输出或工具调用。';
 
@@ -27,8 +27,8 @@ const QUEUED_NOTICE = (position) => [
 
 // The list rows carry the full session id, so a switch is always a copy-paste
 // of the id the user just read; no positional references to a stale snapshot.
-function rebindListText(rows, currentId) {
-  if (!rows.length) return '当前工作区没有可绑定的会话，发送 /new 新建一个。';
+function bindListText(rows, currentId) {
+  if (!rows.length) return '当前工作区没有可绑定的会话，发送 `/bind new` 新建一个。';
   const lines = ['**可绑定会话**', ''];
   for (const row of rows) {
     const title = row.projections?.values?.title || '（无标题）';
@@ -37,7 +37,7 @@ function rebindListText(rows, currentId) {
     lines.push(`- ${title}｜${updated}${row.sessionId === currentId ? '｜**当前**' : ''}`);
     lines.push(`  \`${row.sessionId}\``);
   }
-  lines.push('', '切换：`/rebind <会话ID>`');
+  lines.push('', '切换：`/bind <会话ID>`；新建：`/bind new [首轮消息]`');
   return lines.join('\n');
 }
 
@@ -45,15 +45,29 @@ function rebindListText(rows, currentId) {
 // after that a reply must be proactive (no msgId). 55 minutes keeps a margin.
 export const PASSIVE_WINDOW_MS = 55 * 60_000;
 
+export const QUESTION_WINDOW_MS = 3 * 60_000;
+
+// Marks the user text of a QQ-started turn so the agent can tell where the turn
+// came from; send_qq_message's description keys off it. Kept terse on purpose:
+// it is prepended to every prompt and shows up in the session history.
+export const QQ_ORIGIN_MARKER = '[QQ]';
+
+// How long QQ may hold an agent question before handing it back to the Web
+// relay: a minute at least (typing an answer takes a while), three at most, so
+// a desktop user is not left staring at a frozen turn for the reply timeout.
+export function questionWindowMs(replyTimeoutMs = 600_000) {
+  return Math.max(60_000, Math.min(QUESTION_WINDOW_MS, replyTimeoutMs - 60_000));
+}
+
 export function replyTargetFor(replyTarget, elapsedMs) {
   if (elapsedMs <= PASSIVE_WINDOW_MS) return replyTarget;
   return { scope: replyTarget.scope, targetId: replyTarget.targetId };
 }
 
 // A panel item's name is filled into the chat box with the "/" the QQ client
-// shows for command items, so "/new" and "new" are the same command, and only
-// the slash form may carry arguments ("/new 你好"). A bare alias followed by
-// text ("new 你好") stays a prompt: the user's sentence must not be eaten.
+// shows for command items, so "/bind" and "bind" are the same command, and only
+// the slash form may carry arguments ("/bind new"). A bare alias followed by
+// text ("bind new") stays a prompt: the user's sentence must not be eaten.
 function commandOf(text) {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -68,16 +82,18 @@ function commandOf(text) {
 
 // --- agent questions ---------------------------------------------------------
 
-const SKIP_PATTERN = /^(?:跳过|skip)$/iu;
+// The tool's `header` is the question's title, so it replaces the boilerplate
+// heading instead of stacking a second one above it.
+const SKIP_TEXT = '0';
 
-const SKIPPED_LINE = '回复「跳过」表示不回答这个问题。';
+const SKIPPED_LINE = '回复「0」跳过这个问题。';
 
 // One question, rendered for QQ: numbered options when the tool supplied them,
 // a free-text invitation otherwise.
 export function questionText(question, position, total) {
-  const lines = [`**❓ Agent 提问（${position}/${total}）**`, ''];
-  if (question.header) lines.push(`**${question.header}**`);
-  lines.push(question.question);
+  const title = question.header?.trim();
+  const lines = [title ? `**❓ ${title}**` : `**❓ Agent 提问（${position}/${total}）**`, ''];
+  lines.push(question.question?.trim() ? question.question : '（模型未提供问题文本）');
   if (question.detail) lines.push('', question.detail);
   const options = Array.isArray(question.options) ? question.options : [];
   if (options.length) {
@@ -86,12 +102,12 @@ export function questionText(question, position, total) {
       lines.push(`${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`);
     });
     lines.push('', question.multiSelect
-      ? '回复序号（多选可用逗号分隔，例如 `1,3`），也可以直接回复自定义内容。'
-      : '回复序号，也可以直接回复自定义内容。');
+      ? '回复序号（多选）或直接回复自定义内容'
+      : '回复序号或直接回复自定义内容');
+    lines.push('', SKIPPED_LINE);
   } else {
     lines.push('', '直接回复你的答案即可。');
   }
-  lines.push('', SKIPPED_LINE);
   return lines.join('\n');
 }
 
@@ -100,14 +116,17 @@ export function questionText(question, position, total) {
 export function parseAnswer(question, text) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return undefined;
-  if (SKIP_PATTERN.test(trimmed)) return { id: question.id, selected: [] };
   const options = Array.isArray(question.options) ? question.options : [];
+  // Free-text questions treat every reply (including "0") as the answer.
   if (options.length === 0) return { id: question.id, selected: [], custom: trimmed };
+  if (trimmed === SKIP_TEXT) return { id: question.id, selected: [] };
   const parts = trimmed.split(/[\s,，、]+/u).filter(Boolean);
   if (parts.every((part) => /^\d+$/u.test(part))) {
-    const picked = [...new Set(parts.map((part) => Number(part) - 1))]
-      .filter((index) => index >= 0 && index < options.length);
-    if (picked.length === 0 || (!question.multiSelect && picked.length > 1)) return undefined;
+    const picked = [...new Set(parts.map((part) => Number(part) - 1))];
+    // A number outside 1..N means the reply was not a clean choice. Re-prompt
+    // instead of silently dropping the stray number and answering the rest.
+    if (picked.some((index) => index < 0 || index >= options.length)) return undefined;
+    if (!question.multiSelect && picked.length > 1) return undefined;
     return { id: question.id, selected: picked.map((index) => options[index].label) };
   }
   // Single-select: custom wins and selected must stay empty. Multi-select: both.
@@ -131,6 +150,18 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     logger.warn?.('[dsh-qq-bot] Markdown 回复发送失败：', error?.message ?? error);
   });
 
+  // A turn that ends without an answer is a report, not a reply: quote it so it
+  // reads as a notification instead of blending into the conversation.
+  const failureNotice = (title, detail) => `⚠️ **${title}**\n\n> ${String(detail).replace(/\n/gu, '\n> ')}`;
+
+  const sendFailure = (target, title, detail) => runtime.sendMarkdown(target, failureNotice(title, detail))
+    .catch(async (error) => {
+      logger.warn?.('[dsh-qq-bot] Markdown 回复发送失败：', error?.message ?? error);
+      await runtime.sendText(target, `${title}：${detail}`).catch((fallbackError) => {
+        logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', fallbackError?.message ?? fallbackError);
+      });
+    });
+
   const deliverTarget = (message, startedAt) => replyTargetFor(message.replyTarget, Date.now() - startedAt);
 
   async function claimOwner(sender) {
@@ -144,7 +175,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   // A question arrives long after the last inbound message (the turn is still
   // running), so it must be delivered proactively: the stored c2c target has no
   // passive msg_id left to reply to.
-  const questionTimeoutMs = () => Math.max(30_000, (settings.replyTimeoutMs ?? 600_000) - 60_000);
+  const questionTimeoutMs = () => questionWindowMs(settings.replyTimeoutMs);
 
   function settleQuestion(answer) {
     const current = pendingQuestion;
@@ -173,9 +204,14 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
 
   async function promptQuestion(current) {
     armQuestionTimer(current);
-    const question = current.questions[current.index];
-    await runtime.sendMarkdown(state.target, questionText(question, current.index + 1, current.questions.length))
-      .catch((error) => logger.warn?.('[dsh-qq-bot] 提问转发失败：', error?.message ?? error));
+    current.sending = true;
+    try {
+      const question = current.questions[current.index];
+      await runtime.sendMarkdown(state.target, questionText(question, current.index + 1, current.questions.length))
+        .catch((error) => logger.warn?.('[dsh-qq-bot] 提问转发失败：', error?.message ?? error));
+    } finally {
+      current.sending = false;
+    }
   }
 
   // waterfall listener: claim an agent question only when it comes from the
@@ -187,17 +223,21 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     if (!activeTurns.has(sessionId) || !runtime.ready) return undefined;
     if (!state.target || pendingQuestion) return undefined;
     const questions = (Array.isArray(request.questions) ? request.questions : [])
-      .filter((question) => typeof question?.question === 'string' && question.question.trim() !== '');
+      .filter((question) => question && typeof question === 'object' && !Array.isArray(question));
     if (questions.length === 0) return undefined;
     let settle;
     let fail;
     const answered = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+    // An abort can land while the first prompt is still uploading, before the
+    // await below attaches: keep that rejection handled until then.
+    answered.catch(() => undefined);
     const current = {
       sessionId,
       questions,
       index: 0,
       answers: [],
       timer: null,
+      sending: false,
       resolve: settle,
       reject: fail,
     };
@@ -224,22 +264,33 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   async function answerQuestion(message, text) {
     const current = pendingQuestion;
     if (!current) return false;
-    if (text.startsWith('/') && !SKIP_PATTERN.test(text)) {
-      await sendMarkdown(message, '正在等待你回答上面的问题：直接回复选项序号或自定义内容，回复「跳过」不回答。');
+    // A reply that lands while the next question is still uploading would be
+    // read against a question the user has not seen yet.
+    if (current.sending) {
+      await sendMarkdown(message, '正在发送题目，请稍候再回复。');
+      return true;
+    }
+    if (text.startsWith('/') && text.trim() !== SKIP_TEXT) {
+      await sendMarkdown(message, '正在等待你回答上面的问题：直接回复选项序号或自定义内容，回复「0」跳过。');
       return true;
     }
     const question = current.questions[current.index];
     const parsed = parseAnswer(question, text);
     if (!parsed) {
-      await sendMarkdown(message, `没看懂 \`${text}\`：请回复 1-${question.options.length} 之间的序号，或直接回复自定义内容。`);
+      await sendMarkdown(message, `没看懂 \`${text}\`：请回复 1-${question.options.length} 之间的序号，或直接回复自定义内容（回复 0 跳过）。`);
       return true;
     }
+    const skipped = parsed.selected.length === 0 && parsed.custom === undefined;
     current.answers.push(parsed);
     current.index += 1;
     if (current.index >= current.questions.length) {
+      // A one-line receipt so the user knows the reply landed; the agent keeps
+      // going in the background and its result arrives as the turn's answer.
+      await sendMarkdown(message, skipped ? '收到，已跳过，继续执行任务。' : '收到，继续执行任务。');
       settleQuestion(current.answers);
       return true;
     }
+    if (skipped) await sendMarkdown(message, '收到，已跳过。');
     await promptQuestion(current);
     return true;
   }
@@ -247,7 +298,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   async function answer(message, sessionId, text, startedAt) {
     activeTurns.add(sessionId);
     try {
-      const result = await askSession(ctx, sessionId, text, { timeoutMs: settings.replyTimeoutMs });
+      const result = await askSession(ctx, sessionId, `${QQ_ORIGIN_MARKER} ${text}`, { timeoutMs: settings.replyTimeoutMs });
       const target = deliverTarget(message, startedAt);
       if (result.text) {
         try {
@@ -262,16 +313,15 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         }
         return;
       }
-      return runtime.sendText(target, result.reason?.kind === 'completed'
-        ? '本轮处理已结束，没有文本回复。'
-        : turnFailureText(result.reason)).catch((error) => {
-        logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
-      });
+      if (result.reason?.kind === 'completed') {
+        return runtime.sendText(target, '本轮处理已结束，没有文本回复。').catch((error) => {
+          logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
+        });
+      }
+      return sendFailure(target, '本轮执行异常中断', turnFailureText(result.reason));
     } catch (error) {
       logger.warn?.('[dsh-qq-bot] 处理消息失败：', error?.message ?? error);
-      return runtime.sendText(deliverTarget(message, startedAt), userFacingError(error)).catch((sendError) => {
-        logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', sendError?.message ?? sendError);
-      });
+      return sendFailure(deliverTarget(message, startedAt), '处理消息失败', userFacingError(error));
     } finally {
       activeTurns.delete(sessionId);
     }
@@ -291,27 +341,48 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         status.lastError ? `- 最近错误：${status.lastError}` : null,
       ].filter(Boolean).join('\n'));
     }
-    if (name === '/new') {
-      if (!runtime.ready) return sendMarkdown(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
-      let sessionId;
+    if (name === '/bind') {
+      const rest = args.trim();
+      // `/bind new [首轮消息]` creates the session: a brand-new one in the
+      // configured workspace, bound at once so the next message lands there.
+      const create = /^new(?:\s+([\s\S]*))?$/iu.exec(rest);
+      if (create) {
+        if (!runtime.ready) return sendMarkdown(message, 'QQ 机器人尚未连接，暂时无法新建会话。');
+        let sessionId;
+        try {
+          sessionId = await createSession(ctx, settings.workspace);
+          await state.setSession(sessionId);
+        } catch (error) {
+          logger.warn?.('[dsh-qq-bot] 新建会话失败：', error?.message ?? error);
+          return sendMarkdown(message, userFacingError(error));
+        }
+        // A first message starts the first turn immediately, which also makes
+        // the row appear in DSH's sidebar (a blank row stays hidden).
+        const firstMessage = (create[1] ?? '').trim();
+        if (firstMessage) return answer(message, sessionId, firstMessage, startedAt);
+        return sendMarkdown(message, [
+          '已新建会话并绑定到本聊天。',
+          '',
+          `- 会话：\`${sessionId}\``,
+          `- 工作区：\`${settings.workspace}\``,
+          '',
+          '侧栏会在本会话第一条消息开始后显示这一行。',
+        ].join('\n'));
+      }
+      // No argument lists the workspace's sessions; an id switches to that one.
+      let rows;
       try {
-        sessionId = await createSession(ctx, settings.workspace);
-        await state.setSession(sessionId);
+        rows = await listWorkspaceSessions(ctx, settings.workspace);
       } catch (error) {
-        logger.warn?.('[dsh-qq-bot] 新建会话失败：', error?.message ?? error);
+        logger.warn?.('[dsh-qq-bot] 读取会话列表失败：', error?.message ?? error);
         return sendMarkdown(message, userFacingError(error));
       }
-      // `/new <message>` starts the first turn immediately, which also makes the
-      // row appear in DSH's sidebar (a blank row stays hidden).
-      if (args) return answer(message, sessionId, args, startedAt);
-      return sendMarkdown(message, [
-        '已新建会话并绑定到本聊天。',
-        '',
-        `- 会话：\`${sessionId}\``,
-        `- 工作区：\`${settings.workspace}\``,
-        '',
-        '侧栏会在本会话第一条消息开始后显示这一行。',
-      ].join('\n'));
+      if (!rest) return sendMarkdown(message, bindListText(rows, state.sessionId));
+      const picked = rows.find((row) => row.sessionId === rest) ?? null;
+      if (!picked) return sendMarkdown(message, `没有找到会话 \`${rest}\`。发送 /bind 查看列表。`);
+      if (picked.sessionId === state.sessionId) return sendMarkdown(message, '本聊天已经绑定在这个会话。');
+      await state.setSession(picked.sessionId);
+      return sendMarkdown(message, `已切换至 **${picked.projections?.values?.title || '（无标题）'}**`);
     }
     if (name === '/model') {
       const sessionId = state.sessionId;
@@ -322,22 +393,6 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         logger.warn?.('[dsh-qq-bot] 切换模型失败：', error?.message ?? error);
         return sendMarkdown(message, userFacingError(error));
       }
-    }
-    if (name === '/rebind') {
-      let rows;
-      try {
-        rows = await listWorkspaceSessions(ctx, settings.workspace);
-      } catch (error) {
-        logger.warn?.('[dsh-qq-bot] 读取会话列表失败：', error?.message ?? error);
-        return sendMarkdown(message, userFacingError(error));
-      }
-      if (!args) return sendMarkdown(message, rebindListText(rows, state.sessionId));
-      const ref = args.trim();
-      const picked = rows.find((row) => row.sessionId === ref) ?? null;
-      if (!picked) return sendMarkdown(message, `没有找到会话 \`${ref}\`。发送 /rebind 查看列表。`);
-      if (picked.sessionId === state.sessionId) return sendMarkdown(message, '本聊天已经绑定在这个会话。');
-      await state.setSession(picked.sessionId);
-      return sendMarkdown(message, `已切换至 **${picked.projections?.values?.title || '（无标题）'}**`);
     }
     if (name === '/interject') {
       const sessionId = state.sessionId;
@@ -382,8 +437,8 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         }
         const cmd = commandOf(text);
         if (cmd) return command(message, cmd.name, cmd.args, startedAt);
-        // Capture the binding now: /new or a rebind while this message waits
-        // in the queue must not retarget a message the user already sent.
+        // Capture the binding now: /bind new or /bind <id> while this message
+        // waits in the queue must not retarget a message the user already sent.
         const sessionId = state.sessionId;
         if (!sessionId) return send(message, NO_BINDING);
         // Tell the user when this message is waiting behind a running turn, so

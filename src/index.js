@@ -1,6 +1,6 @@
 // dsh-qq-bot: HOST half. QQ-only bridge for DeepSeek Harness:
 //   - one DSH session bound to one QQ private chat (sidebar row menu);
-//   - /new [message] creates a session in the configured workspace and binds it;
+//   - /bind new [message] creates a session in the configured workspace and binds it;
 //   - a QQ message is relayed as the prompt and only the final answer comes back;
 //   - send_qq_message lets any session push text to the bound QQ chat;
 //   - the settings page (Settings → QQ bot) configures the bot: manual
