@@ -63,6 +63,14 @@ export function apply(ctx, config = {}) {
     holder.events.lastType = typeof event?.type === 'string' ? event.type : null;
   }, { global: true }));
 
+  // An agent question raised while a QQ-started turn is running is forwarded to
+  // QQ and answered from there. Questions from any other turn (Web UI, unbound
+  // sessions) return undefined so the next answerer (the Web relay) handles them.
+  ctx.effect(() => ctx.on('user-questions/request', async (request, next) => {
+    const answers = await holder.bridge?.userQuestion?.(request);
+    return answers === undefined ? next() : answers;
+  }, { prepend: true }));
+
   async function stopBot() {
     const runtime = holder.runtime;
     holder.runtime = null;

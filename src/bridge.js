@@ -1,8 +1,11 @@
 // Inbound QQ messages: owner claim, dedupe, the slash commands, and the
 // request/response relay for ordinary text. One prompt at a time per chat, so
-// answer order matches message order.
+// answer order matches message order; /interject is the one escape hatch that
+// reaches the running turn as a steer instead of waiting for it to end.
 import { ALIASES, COMMANDS } from './commands.js';
-import { askSession, createSession, listWorkspaceSessions, turnFailureText, userFacingError } from './dsh.js';
+import {
+  agentStatus, askSession, createSession, listWorkspaceSessions, submitSteer, turnFailureText, userFacingError,
+} from './dsh.js';
 import { modelListText, switchModel } from './model-command.js';
 
 const HELP = [
@@ -14,6 +17,13 @@ const HELP = [
 ].join('\n');
 
 const NO_BINDING = '还没有绑定会话：在 DSH 侧栏会话菜单里点「绑定QQ会话」，或发送 /new 新建、/rebind 切换一个。';
+
+const INTERJECT_USAGE = '用法：`/interject <要插入的消息>`——这条消息会在当前轮次的下一个步骤生效，不打断正在进行的模型输出或工具调用。';
+
+const QUEUED_NOTICE = (position) => [
+  `已收到，当前轮次还在进行：这条消息排在第 ${position} 位，本轮结束后会自动开始新的轮次。`,
+  '想让它在这一轮的下一个步骤就生效，可以改用 `/interject <内容>` 插话。',
+].join('\n');
 
 // The list rows carry the full session id, so a switch is always a copy-paste
 // of the id the user just read; no positional references to a stale snapshot.
@@ -56,9 +66,60 @@ function commandOf(text) {
   return name ? { name, args: '' } : null;
 }
 
+// --- agent questions ---------------------------------------------------------
+
+const SKIP_PATTERN = /^(?:跳过|skip)$/iu;
+
+const SKIPPED_LINE = '回复「跳过」表示不回答这个问题。';
+
+// One question, rendered for QQ: numbered options when the tool supplied them,
+// a free-text invitation otherwise.
+export function questionText(question, position, total) {
+  const lines = [`**❓ Agent 提问（${position}/${total}）**`, ''];
+  if (question.header) lines.push(`**${question.header}**`);
+  lines.push(question.question);
+  if (question.detail) lines.push('', question.detail);
+  const options = Array.isArray(question.options) ? question.options : [];
+  if (options.length) {
+    lines.push('');
+    options.forEach((option, index) => {
+      lines.push(`${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`);
+    });
+    lines.push('', question.multiSelect
+      ? '回复序号（多选可用逗号分隔，例如 `1,3`），也可以直接回复自定义内容。'
+      : '回复序号，也可以直接回复自定义内容。');
+  } else {
+    lines.push('', '直接回复你的答案即可。');
+  }
+  lines.push('', SKIPPED_LINE);
+  return lines.join('\n');
+}
+
+// A QQ reply to the pending question, in the AskUserQuestionAnswerItem shape.
+// undefined means "not an answer": the caller re-prompts instead of consuming.
+export function parseAnswer(question, text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed) return undefined;
+  if (SKIP_PATTERN.test(trimmed)) return { id: question.id, selected: [] };
+  const options = Array.isArray(question.options) ? question.options : [];
+  if (options.length === 0) return { id: question.id, selected: [], custom: trimmed };
+  const parts = trimmed.split(/[\s,，、]+/u).filter(Boolean);
+  if (parts.every((part) => /^\d+$/u.test(part))) {
+    const picked = [...new Set(parts.map((part) => Number(part) - 1))]
+      .filter((index) => index >= 0 && index < options.length);
+    if (picked.length === 0 || (!question.multiSelect && picked.length > 1)) return undefined;
+    return { id: question.id, selected: picked.map((index) => options[index].label) };
+  }
+  // Single-select: custom wins and selected must stay empty. Multi-select: both.
+  return { id: question.id, selected: [], custom: trimmed };
+}
+
 export function createBridge({ runtime, state, ctx, settings, logger = console, stats }) {
   const accepted = new Set();
+  const activeTurns = new Set(); // sessions with a QQ-started turn currently running
   let queue = Promise.resolve();
+  let waiting = 0; // messages buffered behind a running turn
+  let pendingQuestion = null;
 
   const send = (message, text) => runtime.sendText(message.replyTarget, text).catch((error) => {
     logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
@@ -80,7 +141,111 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     return state.ownerOpenId === sender;
   }
 
+  // A question arrives long after the last inbound message (the turn is still
+  // running), so it must be delivered proactively: the stored c2c target has no
+  // passive msg_id left to reply to.
+  const questionTimeoutMs = () => Math.max(30_000, (settings.replyTimeoutMs ?? 600_000) - 60_000);
+
+  function settleQuestion(answer) {
+    const current = pendingQuestion;
+    pendingQuestion = null;
+    if (current?.timer) clearTimeout(current.timer);
+    current?.resolve(answer);
+  }
+
+  function abortQuestion(error) {
+    const current = pendingQuestion;
+    pendingQuestion = null;
+    if (current?.timer) clearTimeout(current.timer);
+    current?.reject(error);
+  }
+
+  // Each question gets a fresh window: filling in a multi-question form can take
+  // a while, and the idle timer must not expire in the middle of it.
+  function armQuestionTimer(current) {
+    if (current.timer) clearTimeout(current.timer);
+    current.timer = setTimeout(() => {
+      void runtime.sendText(state.target, '提问等待超时，已交回 DSH 界面处理。').catch(() => undefined);
+      abortQuestion(Object.assign(new Error('提问等待超时'), { code: 'timeout' }));
+    }, questionTimeoutMs());
+    current.timer.unref?.();
+  }
+
+  async function promptQuestion(current) {
+    armQuestionTimer(current);
+    const question = current.questions[current.index];
+    await runtime.sendMarkdown(state.target, questionText(question, current.index + 1, current.questions.length))
+      .catch((error) => logger.warn?.('[dsh-qq-bot] 提问转发失败：', error?.message ?? error));
+  }
+
+  // waterfall listener: claim an agent question only when it comes from the
+  // bound session and that session's turn started in QQ. Anything else returns
+  // undefined so the official Web relay answers it.
+  async function userQuestion(request) {
+    const sessionId = request?.agent?.id ?? null;
+    if (!sessionId || sessionId !== state.sessionId) return undefined;
+    if (!activeTurns.has(sessionId) || !runtime.ready) return undefined;
+    if (!state.target || pendingQuestion) return undefined;
+    const questions = (Array.isArray(request.questions) ? request.questions : [])
+      .filter((question) => typeof question?.question === 'string' && question.question.trim() !== '');
+    if (questions.length === 0) return undefined;
+    let settle;
+    let fail;
+    const answered = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
+    const current = {
+      sessionId,
+      questions,
+      index: 0,
+      answers: [],
+      timer: null,
+      resolve: settle,
+      reject: fail,
+    };
+    const onAbort = () => abortQuestion(Object.assign(new Error('提问已被取消'), { code: 'aborted' }));
+    request.signal?.addEventListener('abort', onAbort, { once: true });
+    pendingQuestion = current;
+    try {
+      await promptQuestion(current);
+      return { answers: await answered };
+    } catch (error) {
+      logger.warn?.('[dsh-qq-bot] 提问转发未完成：', error?.message ?? error);
+      // Never leave the waterfall hanging: hand the question back to the Web relay.
+      return undefined;
+    } finally {
+      request.signal?.removeEventListener('abort', onAbort);
+      if (pendingQuestion === current) {
+        pendingQuestion = null;
+        if (current.timer) clearTimeout(current.timer);
+      }
+    }
+  }
+
+  // Consume one QQ reply for the pending question; true when it was an answer.
+  async function answerQuestion(message, text) {
+    const current = pendingQuestion;
+    if (!current) return false;
+    if (text.startsWith('/') && !SKIP_PATTERN.test(text)) {
+      await sendMarkdown(message, '正在等待你回答上面的问题：直接回复选项序号或自定义内容，回复「跳过」不回答。');
+      return true;
+    }
+    const question = current.questions[current.index];
+    const parsed = parseAnswer(question, text);
+    if (!parsed) {
+      await sendMarkdown(message, `没看懂 \`${text}\`：请回复 1-${question.options.length} 之间的序号，或直接回复自定义内容。`);
+      return true;
+    }
+    current.answers.push(parsed);
+    current.index += 1;
+    if (current.index >= current.questions.length) {
+      settleQuestion(current.answers);
+      return true;
+    }
+    await promptQuestion(current);
+    return true;
+  }
+
   async function answer(message, sessionId, text, startedAt) {
+    activeTurns.add(sessionId);
     try {
       const result = await askSession(ctx, sessionId, text, { timeoutMs: settings.replyTimeoutMs });
       const target = deliverTarget(message, startedAt);
@@ -107,6 +272,8 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       return runtime.sendText(deliverTarget(message, startedAt), userFacingError(error)).catch((sendError) => {
         logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', sendError?.message ?? sendError);
       });
+    } finally {
+      activeTurns.delete(sessionId);
     }
   }
 
@@ -172,10 +339,26 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       await state.setSession(picked.sessionId);
       return sendMarkdown(message, `已切换至 **${picked.projections?.values?.title || '（无标题）'}**`);
     }
+    if (name === '/interject') {
+      const sessionId = state.sessionId;
+      if (!sessionId) return sendMarkdown(message, NO_BINDING);
+      const content = args.trim();
+      if (!content) return sendMarkdown(message, INTERJECT_USAGE);
+      // Nothing to steer on an idle agent: the same text is just a normal prompt.
+      if (agentStatus(ctx, sessionId) !== 'running') return answer(message, sessionId, content, startedAt);
+      try {
+        await submitSteer(ctx, sessionId, content);
+        return sendMarkdown(message, '已插话：这条消息会在当前轮次的下一个步骤生效（不会打断正在进行的模型输出或工具调用）。');
+      } catch (error) {
+        logger.warn?.('[dsh-qq-bot] 插话失败：', error?.message ?? error);
+        return sendMarkdown(message, userFacingError(error));
+      }
+    }
     return sendMarkdown(message, `未知命令：\`${name}\`\n\n${HELP}`);
   }
 
   return {
+    userQuestion,
     async accept(message) {
       if (!message || message.senderIsBot === true || message.kind !== 'c2c') return;
       const messageId = message.messageId;
@@ -193,13 +376,28 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         // Persist consumption before the prompt reaches the Harness: QQ may
         // redeliver a message, and a redelivered prompt must not run twice.
         await state.markSeen(messageId);
+        if (pendingQuestion) {
+          await answerQuestion(message, text);
+          return;
+        }
         const cmd = commandOf(text);
         if (cmd) return command(message, cmd.name, cmd.args, startedAt);
         // Capture the binding now: /new or a rebind while this message waits
         // in the queue must not retarget a message the user already sent.
         const sessionId = state.sessionId;
         if (!sessionId) return send(message, NO_BINDING);
-        const task = queue.then(() => answer(message, sessionId, text, startedAt));
+        // Tell the user when this message is waiting behind a running turn, so
+        // a second message is not silently swallowed until the answer comes back.
+        const busy = agentStatus(ctx, sessionId) === 'running';
+        if (busy) {
+          waiting += 1;
+          await send(message, QUEUED_NOTICE(waiting));
+        }
+        const counted = busy;
+        const task = queue.then(async () => {
+          if (counted) waiting = Math.max(0, waiting - 1);
+          return answer(message, sessionId, text, startedAt);
+        });
         queue = task.catch(() => undefined);
         await task;
       } finally {

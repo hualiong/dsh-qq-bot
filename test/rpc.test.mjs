@@ -9,6 +9,11 @@ import { installRpc } from '../src/rpc.js';
 
 const APP_ID = '1905390910';
 
+// The reported version must follow package.json, so a release bump cannot go stale.
+async function packageVersion() {
+  return JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
+}
+
 function fakeProvision() {
   const state = { attemptId: 'attempt-1', status: 'pending', qrCodeDataUrl: 'data:image/png;base64,AAAA' };
   return {
@@ -100,7 +105,7 @@ test('status reports connection, configuration, binding, and the event counter',
   const { call } = await fixture(t, { sessionId: 'session-1' });
   const result = await call('connection.status', {});
   assert.equal(result.ok, true);
-  assert.equal(result.value.version, '0.4.0');
+  assert.equal(result.value.version, await packageVersion());
   assert.equal(result.value.connected, true);
   assert.equal(result.value.configured, true);
   assert.equal(result.value.toolEnabled, true);

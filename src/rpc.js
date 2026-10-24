@@ -6,7 +6,7 @@ import { sessionExists } from './dsh.js';
 
 const CHANNEL = 'dsh-qq-bot';
 const PATH = `/api/${CHANNEL}`;
-const VERSION = '0.4.1'; // keep in step with package.json; shown in the status payload
+const VERSION = '0.4.2'; // keep in step with package.json; shown in the status payload
 
 function reply(rpcId, result) {
   const value = result.ok === false

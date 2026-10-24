@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const {
       Button,
+      IconCheckOutlineRegular,
       IconFolderOpenOutlineRegular,
       IconLinkOutlineRegular,
       IconTrashOutlineRegular,
@@ -319,13 +320,6 @@ window.__ModuleLoader__.load({
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 'var(--dsw-radius-md, 8px)',
-      },
-      saveButton: {
-        borderRadius: 'var(--dsw-radius-md, 8px)',
-        height: 32,
-        padding: '0 12px',
-        fontSize: 13,
-        lineHeight: '20px',
       },
       toggleRow: {
         display: 'flex',
@@ -763,6 +757,14 @@ window.__ModuleLoader__.load({
       const workspaceCard = !configured ? null : h(Card, {
         title: t('workspace.title'),
         description: t('workspace.description'),
+        // Save sits in the card header as a text button, matching the removal
+        // button on the bot card (ghost + icon); the input row stays row-shaped.
+        action: h(Button, {
+          size: 'sm',
+          onClick: saveWorkspace,
+          disabled: wsBusy || !workspaceDirty,
+          icon: h(IconCheckOutlineRegular, { size: 14 }),
+        }, wsBusy ? t('saving') : t('save')),
       },
         h('div', { style: styles.inputRow },
           h('input', {
@@ -788,13 +790,6 @@ window.__ModuleLoader__.load({
             icon: h(IconFolderOpenOutlineRegular, { size: 14 }),
             onClick: chooseWorkspace,
           })),
-        h('div', { style: styles.actions },
-          h(Button, {
-            variant: 'primary',
-            style: styles.saveButton,
-            onClick: saveWorkspace,
-            disabled: wsBusy || !workspaceDirty,
-          }, wsBusy ? t('saving') : t('save'))),
         wsError ? h('p', { style: styles.error }, `${t('saveFailed')}：${wsError}`) : null,
         wsNotice ? h('p', { style: styles.notice }, wsNotice) : null)
 

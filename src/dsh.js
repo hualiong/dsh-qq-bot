@@ -119,6 +119,38 @@ export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
   }
 }
 
+/**
+ * The live agent of a session, if one is loaded: status is 'idle' or 'running'.
+ * Used to tell a message that will be queued from one that could be steered.
+ */
+export function agentStatus(ctx, sessionId) {
+  try {
+    return ctx.get?.('agents')?.get(sessionId)?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Submit `text` as a steer: the Harness claims it at the current turn's next
+ * step boundary instead of waiting for the turn to end. Only admission is
+ * awaited — the answer arrives through the turn that is already running.
+ */
+export async function submitSteer(ctx, sessionId, text) {
+  const admission = new AbortController();
+  try {
+    await sessions(ctx).prompt({
+      requestId: `${REQUEST_PREFIX}-steer-${randomUUID()}`,
+      sessionId,
+      mode: 'steer',
+      content: [{ type: 'text', text }],
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }, admission.signal);
+  } finally {
+    admission.abort();
+  }
+}
+
 export function userFacingError(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (code === 'reply-timeout') return '等待回复超时：任务可能仍在后台运行，稍后可在 DSH 界面查看结果。';

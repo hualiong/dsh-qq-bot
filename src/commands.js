@@ -7,6 +7,7 @@ export const COMMANDS = Object.freeze([
   { command: '/status', name: 'status', desc: '查看连接与绑定状态' },
   { command: '/model', name: 'model', desc: '查看或切换当前会话模型' },
   { command: '/rebind', name: 'rebind', desc: '列出工作区会话，带参切换绑定' },
+  { command: '/interject', name: 'interject', desc: '插话：在当前轮次的下一个步骤插入一条消息' },
   { command: '/help', name: 'help', desc: '显示可用命令' },
 ]);
 

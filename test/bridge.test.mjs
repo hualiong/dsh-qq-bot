@@ -4,37 +4,59 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createBridge, PASSIVE_WINDOW_MS, replyTargetFor } from '../src/bridge.js';
+import { createBridge, parseAnswer, PASSIVE_WINDOW_MS, questionText, replyTargetFor } from '../src/bridge.js';
 import { createStateStore } from '../src/state.js';
 
 const text = (value) => ({ type: 'text', text: value });
 
-async function fixture(t, { workspace, failMarkdown = false } = {}) {
+const settle = () => new Promise((resolve) => setTimeout(resolve, 2));
+
+async function until(check) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (check()) return;
+    await settle();
+  }
+  throw new Error('condition never became true');
+}
+
+async function fixture(t, { workspace, failMarkdown = false, agentsRunning = false, holdPrompt = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
   const sent = [];
   const markdown = [];
   const created = [];
+  const prompts = [];
   const listeners = new Set();
+  let releasePending = null;
+  const agentStatus = () => (agentsRunning ? { status: 'running' } : null);
   const ctx = {
     get: (key) => (key === 'workspaceRegistry'
       ? { resolveByPath: async () => workspace, create: async () => workspace }
-      : key === 'sessionController' ? ctx.sessionController : undefined),
+      : key === 'agents' ? { get: () => agentStatus() }
+        : key === 'sessionController' ? ctx.sessionController : undefined),
     sessionController: {
       async create(request) { created.push(request); return { sessionId: 'session-new' }; },
       async prompt(request) {
+        prompts.push(request);
         // Answer the way the Host would: the prompt's own request id owns a turn.
-        const turn = 1;
-        queueMicrotask(() => {
-          for (const listener of [...listeners]) {
-            listener({ id: request.sessionId }, { seq: 1, type: 'user/message', data: { turn, source: { kind: 'user', rpcId: request.requestId } } });
-            listener({ id: request.sessionId }, { seq: 2, type: 'assistant/message', data: { turn, step: 0, message: { content: [{ type: 'reasoning', text: 'secret' }, text('Checking'), { type: 'tool-call', id: 'c', name: 'bash', arguments: '{}' }] } } });
-            listener({ id: request.sessionId }, { seq: 3, type: 'tool/call', data: { turn, step: 0, callId: 'c', name: 'bash', arguments: '{}' } });
-            listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text('Answer')] } } });
-            listener({ id: request.sessionId }, { seq: 5, type: 'turn/end', data: { turn, reason: { kind: 'completed' } } });
-          }
-        });
+        const turn = Math.max(1, prompts.length);
+        const emit = () => {
+          queueMicrotask(() => {
+            for (const listener of [...listeners]) {
+              listener({ id: request.sessionId }, { seq: 1, type: 'user/message', data: { turn, source: { kind: 'user', rpcId: request.requestId } } });
+              listener({ id: request.sessionId }, { seq: 2, type: 'assistant/message', data: { turn, step: 0, message: { content: [{ type: 'reasoning', text: 'secret' }, text('Checking'), { type: 'tool-call', id: 'c', name: 'bash', arguments: '{}' }] } } });
+              listener({ id: request.sessionId }, { seq: 3, type: 'tool/call', data: { turn, step: 0, callId: 'c', name: 'bash', arguments: '{}' } });
+              listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text('Answer')] } } });
+              listener({ id: request.sessionId }, { seq: 5, type: 'turn/end', data: { turn, reason: { kind: 'completed' } } });
+            }
+          });
+        };
+        if (holdPrompt) {
+          await new Promise((resolve) => { releasePending = () => { resolve(); emit(); }; });
+          return;
+        }
+        emit();
       },
     },
     on(event, handler) {
@@ -62,7 +84,7 @@ async function fixture(t, { workspace, failMarkdown = false } = {}) {
     content: 'hello', replyTarget: { scope: 'c2c', targetId: 'openid-a', msgId: 'm-1' },
     ...overrides,
   });
-  return { state, sent, markdown, created, bridge, message };
+  return { state, sent, markdown, created, prompts, bridge, message, release: () => releasePending?.() };
 }
 
 test('the first private message claims the owner and an unbound chat is told how to bind', async (t) => {
@@ -99,15 +121,12 @@ test('/help and /status answer as markdown without touching the bound session', 
   assert.match(markdown[1], /绑定会话：`无`/u);
 });
 
-test('/new creates a session in the default workspace, binds it, and unbind clears it', async (t) => {
+test('/new creates a session in the default workspace and binds it', async (t) => {
   const { state, markdown, created, bridge, message } = await fixture(t);
   await bridge.accept(message({ messageId: 'm-1', content: '/new' }));
   assert.deepEqual(created, [{ cwd: 'C:\\workspace' }]);
   assert.equal(state.sessionId, 'session-new');
   assert.match(markdown[0], /会话：`session-new`/u);
-
-  await bridge.accept(message({ messageId: 'm-2', content: '/unbind' }));
-  assert.equal(state.sessionId, null);
 });
 
 test('command panel aliases work as the whole message', async (t) => {
@@ -183,4 +202,101 @@ test('a bound chat relays only the final answer', async (t) => {
   await state.setSession('session-1');
   await bridge.accept(message());
   assert.deepEqual(markdown, ['Answer']);
+});
+
+test('a message sent while a turn is running is queued and announced', async (t) => {
+  const { sent, markdown, prompts, bridge, message, state } = await fixture(t, { agentsRunning: true });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.match(sent[0], /排在第 1 位/u);
+  assert.match(sent[0], /\/interject/u);
+  assert.deepEqual(markdown, ['Answer'], 'the queued message still ran');
+  assert.equal(prompts[0].mode, 'queue');
+});
+
+test('/interject sends a steer prompt instead of queueing a new turn', async (t) => {
+  const { markdown, prompts, bridge, message, state } = await fixture(t, { agentsRunning: true });
+  await state.setSession('session-1');
+  await bridge.accept(message({ messageId: 'm-1', content: '/interject 先看日志' }));
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].mode, 'steer');
+  assert.deepEqual(prompts[0].content, [{ type: 'text', text: '先看日志' }]);
+  assert.match(markdown[0], /已插话/u);
+});
+
+test('/interject on an idle agent behaves like a normal message', async (t) => {
+  const { markdown, prompts, bridge, message, state } = await fixture(t);
+  await state.setSession('session-1');
+  await bridge.accept(message({ messageId: 'm-1', content: '/interject 你好' }));
+  assert.equal(prompts[0].mode, 'queue');
+  assert.deepEqual(markdown, ['Answer']);
+});
+
+test('an agent question is forwarded to QQ and answered with an option number', async (t) => {
+  const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const request = {
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '用哪个方案？', options: [{ label: '甲' }, { label: '乙' }] }],
+  };
+  const answered = bridge.userQuestion(request);
+  await until(() => markdown.some((line) => line.includes('2. 乙')));
+
+  await bridge.accept(message({ messageId: 'm-2', content: '2' }));
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: ['乙'] }] });
+
+  release();
+  await inflight;
+});
+
+test('an aborted agent question falls back to the Web relay', async (t) => {
+  const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const controller = new AbortController();
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+    signal: controller.signal,
+  });
+  await until(() => markdown.some((line) => line.includes('继续吗？')));
+  controller.abort();
+  assert.equal(await answered, undefined);
+
+  release();
+  await inflight;
+});
+
+test('questions from other sessions fall through to the Web relay', async (t) => {
+  const { bridge } = await fixture(t);
+  const foreign = { agent: { id: 'other-session' }, questions: [{ id: 'q1', question: '继续吗？' }] };
+  assert.equal(await bridge.userQuestion(foreign), undefined);
+});
+
+test('parseAnswer maps QQ replies to selected labels or custom text', () => {
+  const single = { id: 'q1', options: [{ label: '甲' }, { label: '乙' }] };
+  assert.deepEqual(parseAnswer(single, '2'), { id: 'q1', selected: ['乙'] });
+  assert.deepEqual(parseAnswer(single, '乙'), { id: 'q1', selected: [], custom: '乙' });
+  assert.deepEqual(parseAnswer(single, '跳过'), { id: 'q1', selected: [] });
+  assert.equal(parseAnswer(single, '9'), undefined, 'out-of-range numbers re-prompt');
+
+  const multi = { id: 'q2', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }] };
+  assert.deepEqual(parseAnswer(multi, '1, 3'), { id: 'q2', selected: ['A', 'C'] });
+  assert.equal(parseAnswer({ ...multi, multiSelect: false }, '1,2'), undefined);
+
+  assert.deepEqual(parseAnswer({ id: 'q4', options: [] }, '自由回答'), { id: 'q4', selected: [], custom: '自由回答' });
+});
+
+test('questionText numbers options and mentions skipping', () => {
+  const rendered = questionText({
+    id: 'q', header: '确认', question: '选一个', options: [{ label: 'A', description: 'aa' }, { label: 'B' }],
+  }, 1, 2);
+  assert.match(rendered, /1\. A — aa/u);
+  assert.match(rendered, /2\. B/u);
+  assert.match(rendered, /跳过/u);
 });
