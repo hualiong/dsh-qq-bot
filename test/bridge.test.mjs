@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
-  createBridge, parseAnswer, PASSIVE_WINDOW_MS, QQ_ORIGIN_MARKER, questionText, questionWindowMs, replyTargetFor,
+  createBridge, parseAnswer, PASSIVE_WINDOW_MS, QQ_ORIGIN_MARKER, questionKeyboard, questionText, questionWindowMs,
+  replyTargetFor,
 } from '../src/bridge.js';
 import { createStateStore } from '../src/state.js';
 
@@ -21,12 +22,17 @@ async function until(check) {
   throw new Error('condition never became true');
 }
 
-async function fixture(t, { workspace, failMarkdown = false, agentsRunning = false, holdPrompt = false, holdMarkdown = false, endReason = { kind: 'completed' }, noAnswer = false, sessions = [] } = {}) {
+async function fixture(t, { workspace, failMarkdown = false, agentsRunning = false, holdPrompt = false, holdMarkdown = false, failKeyboard = false, stream = false, failStream = false, endReason = { kind: 'completed' }, noAnswer = false, sessions = [], answer = 'Answer' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-qq-bot-bridge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = await createStateStore(join(root, 'state.json')).load();
   const sent = [];
   const markdown = [];
+  const keyboards = [];
+  const acks = [];
+  const recalls = [];
+  const streams = [];
+  const streamUpdates = [];
   const created = [];
   const prompts = [];
   const listeners = new Set();
@@ -52,7 +58,7 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
               listener({ id: request.sessionId }, { seq: 1, type: 'user/message', data: { turn, source: { kind: 'user', rpcId: request.requestId } } });
               listener({ id: request.sessionId }, { seq: 2, type: 'assistant/message', data: { turn, step: 0, message: { content: [{ type: 'reasoning', text: 'secret' }, text('Checking'), { type: 'tool-call', id: 'c', name: 'bash', arguments: '{}' }] } } });
               listener({ id: request.sessionId }, { seq: 3, type: 'tool/call', data: { turn, step: 0, callId: 'c', name: 'bash', arguments: '{}' } });
-              if (!noAnswer) listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text('Answer')] } } });
+              if (!noAnswer) listener({ id: request.sessionId }, { seq: 4, type: 'assistant/message', data: { turn, step: 1, message: { content: [text(answer)] } } });
               listener({ id: request.sessionId }, { seq: 5, type: 'turn/end', data: { turn, reason: endReason } });
             }
           });
@@ -70,23 +76,56 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
       return () => listeners.delete(handler);
     },
   };
+  // Both send paths render the question, so the hold covers either one.
+  const gateMarkdown = async () => {
+    if (holdMarkdown && !markdownHeld) {
+      markdownHeld = true;
+      await new Promise((resolve) => { releaseMarkdown = resolve; });
+    }
+  };
   const runtime = {
     ready: true,
     status: { ready: true, state: 'connected', lastError: null },
     async sendText(target, value) { sent.push(value); },
     async sendMarkdown(target, value) {
       if (failMarkdown) throw new Error('markdown rejected');
-      if (holdMarkdown && !markdownHeld) {
-        markdownHeld = true;
-        await new Promise((resolve) => { releaseMarkdown = resolve; });
-      }
+      await gateMarkdown();
       markdown.push(value);
     },
+    // The button path still shows the question text; it is recorded in markdown
+    // so the existing assertions keep describing what the user reads.
+    async sendKeyboard(target, value, keyboard) {
+      if (failKeyboard) throw new Error('keyboard rejected');
+      await gateMarkdown();
+      markdown.push(value);
+      keyboards.push(keyboard);
+      return { id: `kb-${keyboards.length}` };
+    },
+    async acknowledgeInteraction(id, code) { acks.push([id, code]); },
+    async recallMessage(target, messageId) { recalls.push(messageId); },
   };
+  if (stream) {
+    runtime.openStream = (target) => {
+      const session = {
+        target,
+        updates: [],
+        async update(value) {
+          if (failStream) throw new Error('stream rejected');
+          this.updates.push(value);
+          streamUpdates.push(value);
+        },
+        async complete() { this.done = true; return { id: 'stream-1' }; },
+        cancel() { this.cancelled = true; },
+      };
+      streams.push(session);
+      return session;
+    };
+  }
   const bridge = createBridge({
     runtime, state, ctx,
     settings: { workspace: 'C:\\workspace', replyTimeoutMs: 1_000 },
     logger: { warn: () => {} },
+    streamReplies: () => stream,
   });
   const message = (overrides = {}) => ({
     kind: 'c2c', senderId: 'openid-a', senderIsBot: false, messageId: 'm-1',
@@ -94,7 +133,7 @@ async function fixture(t, { workspace, failMarkdown = false, agentsRunning = fal
     ...overrides,
   });
   return {
-    state, sent, markdown, created, prompts, bridge, message,
+    state, sent, markdown, keyboards, acks, recalls, streams, streamUpdates, created, prompts, bridge, message,
     release: () => releasePending?.(),
     releaseMarkdown: () => releaseMarkdown?.(),
   };
@@ -252,6 +291,33 @@ test('a reply after the passive window becomes proactive', () => {
   assert.deepEqual(replyTargetFor(target, PASSIVE_WINDOW_MS + 1), { scope: 'c2c', targetId: 'openid-a' });
 });
 
+test('a c2c answer is streamed when the SDK supports it, with markdown as fallback', async (t) => {
+  const { markdown, streams, streamUpdates, bridge, message, state } = await fixture(t, { stream: true });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.equal(streams.length, 1, 'one stream per turn');
+  assert.deepEqual(streamUpdates, ['Answer'], 'only the post-tool answer text is streamed');
+  assert.equal(streams[0].done, true);
+  assert.equal(markdown.length, 0, 'the stream replaces the plain send');
+});
+
+test('a failing stream falls back to a normal markdown answer', async (t) => {
+  const { markdown, streams, bridge, message, state } = await fixture(t, { stream: true, failStream: true });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.equal(streams[0].cancelled, true);
+  assert.deepEqual(markdown, ['Answer']);
+});
+
+test('a long answer skips the per-frame crawl and is sent once instead', async (t) => {
+  const answer = 'x'.repeat(2_000);
+  const { markdown, streams, bridge, message, state } = await fixture(t, { stream: true, answer });
+  await state.setSession('session-1');
+  await bridge.accept(message());
+  assert.equal(streams.length, 0, 'nothing is streamed once the text is already long');
+  assert.deepEqual(markdown, [answer]);
+});
+
 test('a bound chat relays only the final answer', async (t) => {
   const { markdown, prompts, bridge, message, state } = await fixture(t);
   await state.setSession('session-1');
@@ -395,6 +461,75 @@ test('questionWindowMs stays between one and three minutes', () => {
   assert.equal(questionWindowMs(30_000), 60_000, 'the floor wins over a tiny timeout');
 });
 
+test('questionKeyboard turns a short single-select question into buttons', () => {
+  const keyboard = questionKeyboard({ id: 'q', options: [{ label: '甲' }, { label: '乙' }] });
+  assert.equal(keyboard.content.rows.length, 2);
+  assert.deepEqual(keyboard.content.rows[0].buttons[0], {
+    id: 'qqbot-opt-1',
+    render_data: { label: '甲', visited_label: '甲', style: 1 },
+    action: {
+      type: 1,
+      permission: { type: 2 },
+      data: '1',
+      unsupport_tips: '请升级手机 QQ 后重试',
+    },
+  });
+  assert.equal(questionKeyboard({ id: 'q', multiSelect: true, options: [{ label: 'A' }] }), null);
+  assert.equal(questionKeyboard({ id: 'q', options: [] }), null);
+  assert.equal(questionKeyboard({ id: 'q', options: Array.from({ length: 6 }, (_, i) => ({ label: `${i}` })) }), null);
+});
+
+test('a tapped question button answers it and is acknowledged', async (t) => {
+  const { markdown, keyboards, acks, recalls, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '用哪个？', options: [{ label: '甲' }, { label: '乙' }] }],
+  });
+  await until(() => keyboards.length === 1);
+  assert.ok(markdown.some((line) => line.includes('1/1')), 'the question text still reaches QQ');
+  assert.equal(keyboards[0].content.rows.length, 2);
+
+  // A foreign user must not be able to answer the owner's question.
+  await bridge.interaction({ id: 'i-1', user_openid: 'someone-else', data: { resolved: { button_id: 'qqbot-opt-2' } } });
+  assert.deepEqual(acks.at(-1), ['i-1', 4]);
+
+  await bridge.interaction({ id: 'i-2', user_openid: 'openid-a', data: { resolved: { button_id: 'qqbot-opt-2' } } });
+  assert.deepEqual(acks.at(-1), ['i-2', 0]);
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: ['乙'] }] });
+  assert.ok(markdown.includes('收到，继续执行任务。'), 'a tap gets the same receipt as typing the number');
+  assert.deepEqual(recalls, ['kb-1'], 'the answered question is taken away so its buttons stop working');
+
+  // A second tap on the now-gone question is a duplicate, not a failure.
+  await bridge.interaction({ id: 'i-3', user_openid: 'openid-a', data: { resolved: { button_id: 'qqbot-opt-1' } } });
+  assert.deepEqual(acks.at(-1), ['i-3', 3]);
+
+  release();
+  await inflight;
+});
+
+test('a keyboard failure falls back to a plain question message', async (t) => {
+  const { markdown, keyboards, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true, failKeyboard: true });
+  await state.setSession('session-1');
+  const inflight = bridge.accept(message({ messageId: 'm-1' }));
+  await until(() => prompts.length === 1);
+
+  const answered = bridge.userQuestion({
+    agent: { id: 'session-1' },
+    questions: [{ id: 'q1', question: '用哪个？', options: [{ label: '甲' }] }],
+  });
+  await until(() => markdown.some((line) => line.includes('1/1')));
+  assert.equal(keyboards.length, 0);
+  await bridge.accept(message({ messageId: 'm-2', content: '1' }));
+  assert.deepEqual(await answered, { answers: [{ id: 'q1', selected: ['甲'] }] });
+
+  release();
+  await inflight;
+});
+
 test('a question with no text still yields one answer per question', async (t) => {
   const { markdown, prompts, bridge, message, state, release } = await fixture(t, { holdPrompt: true });
   await state.setSession('session-1');
@@ -529,12 +664,12 @@ test('questionText uses the agent header as the title and documents skipping', (
   assert.doesNotMatch(rendered, /Agent 提问/u);
   assert.match(rendered, /1\. A — aa/u);
   assert.match(rendered, /2\. B/u);
-  assert.match(rendered, /回复序号或直接回复自定义内容/u);
-  assert.match(rendered, /回复「0」跳过这个问题。/u);
+  assert.match(rendered, /^点按钮或回复序号或直接回复自定义内容；回复「0」跳过这个问题。$/mu);
+  assert.doesNotMatch(rendered, /回复序号或直接回复自定义内容\n/u);
 
   const multi = questionText({
     id: 'q', question: '多选', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }],
   }, 1, 1);
   assert.match(multi, /\*\*❓ Agent 提问（1\/1）\*\*/u);
-  assert.match(multi, /回复序号（多选）或直接回复自定义内容/u);
+  assert.match(multi, /^点按钮或回复序号（多选）或直接回复自定义内容；回复「0」跳过这个问题。$/mu);
 });

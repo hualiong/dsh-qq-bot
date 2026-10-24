@@ -29,6 +29,7 @@ const Config = z.object({
   ownerOpenId: z.string().description('允许使用机器人的 QQ 用户 openid。留空则第一个发私信的用户自动认领。'),
   replyTimeoutMs: z.number().default(600_000).description('等待单轮回复的最长静默时间（毫秒）。'),
   toolEnabled: z.boolean().default(true).volatile().description('向 Agent 暴露 send_qq_message 工具。'),
+  streamReplies: z.boolean().default(false).volatile().description('流式输出最终答复（仅单聊被动回复）。关闭时一次性发送全文。'),
 });
 
 function readRef(value) {
@@ -49,6 +50,9 @@ export function apply(ctx, config = {}) {
     // Runtime push-tool switch owned by the settings page; the config field is
     // only the initial value, exactly like the old volatile one.
     toolEnabled: readRef(config.toolEnabled) !== false,
+    // Streaming is opt-in: QQ re-uploads the whole body per frame, so long
+    // answers are faster as one send; the settings page toggles it at runtime.
+    streamReplies: readRef(config.streamReplies) === true,
     syncTools: null,
     // Diagnostic counters for /status: proves the global session event feed
     // reaches this plugin without waiting for a turn timeout.
@@ -110,8 +114,13 @@ export function apply(ctx, config = {}) {
         appSecret: secret.value,
         logger,
         onMessage: (message) => void holder.bridge?.accept(message),
+        onInteraction: (event) => holder.bridge?.interaction?.(event),
       });
-      holder.bridge = createBridge({ runtime, state, ctx, settings, logger, stats: holder.events });
+      holder.bridge = createBridge({
+        runtime, state, ctx, settings, logger,
+        stats: holder.events,
+        streamReplies: () => holder.streamReplies === true,
+      });
       holder.runtime = runtime;
       if (disposed) {
         await runtime.stop();

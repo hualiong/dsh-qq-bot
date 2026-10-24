@@ -83,6 +83,8 @@ window.__ModuleLoader__.load({
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.label': '允许 Agent 主动推送消息',
       'push.description': '任意会话的 Agent 都能用 send_qq_message 工具向你推送消息，无需绑定 QQ 会话',
+      'stream.label': '流式输出答复',
+      'stream.description': '单聊被动回复时边生成边刷新消息；每帧重传全文，长答复会更慢，默认关闭',
       'workspace.title': '默认工作区',
       'workspace.description': '/bind new 新建的 QQ 会话会创建在这个目录；留空使用 $DSH_HOME/im',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
@@ -137,6 +139,8 @@ window.__ModuleLoader__.load({
       'manual.workspacePlaceholder': 'C:\\path\\to\\workspace',
       'push.label': 'Let Agents push to you',
       'push.description': 'Any session’s Agent can push messages to you with the send_qq_message tool; no bound session required.',
+      'stream.label': 'Stream answers',
+      'stream.description': 'Refresh the message while it is generated (C2C passive replies only). Every frame re-sends the whole body, so long answers get slower; off by default.',
       'workspace.title': 'Default workspace',
       'workspace.description': 'Sessions started with /bind new are created in this directory; blank falls back to $DSH_HOME/im.',
       'workspace.placeholder': 'C:\\path\\to\\workspace',
@@ -400,6 +404,7 @@ window.__ModuleLoader__.load({
       const [qrBusy, setQrBusy] = useState(false)
       const [wsBusy, setWsBusy] = useState(false)
       const [toolBusy, setToolBusy] = useState(false)
+      const [streamBusy, setStreamBusy] = useState(false)
       const [removeBusy, setRemoveBusy] = useState(false)
       const [error, setError] = useState(null)
       const [wsError, setWsError] = useState(null)
@@ -496,6 +501,7 @@ window.__ModuleLoader__.load({
       const configured = status?.configured === true
       const hasBot = Boolean(status?.appId)
       const toolEnabled = status?.toolEnabled !== false
+      const streamEnabled = status?.streamReplies === true
       const botInfo = status?.bot ?? null
       const botAvatar = typeof botInfo?.avatar === 'string' ? botInfo.avatar : null
 
@@ -563,6 +569,18 @@ window.__ModuleLoader__.load({
           setError(failure.message)
         } finally {
           setToolBusy(false)
+        }
+      }
+
+      const toggleStream = async (next) => {
+        setStreamBusy(true)
+        setError(null)
+        try {
+          applyStatus(await callRpc(connection, 'replies.set', { stream: next }))
+        } catch (failure) {
+          setError(failure.message)
+        } finally {
+          setStreamBusy(false)
         }
       }
 
@@ -739,6 +757,18 @@ window.__ModuleLoader__.load({
             onChange: toggleTools,
           })))
 
+      const streamCard = !configured ? null : h(Card, null,
+        h('div', { style: styles.pushRow },
+          h('div', { style: styles.pushText },
+            h('p', { style: styles.pushLabel }, t('stream.label')),
+            h('p', { style: styles.cardDesc }, t('stream.description'))),
+          h(Switch, {
+            checked: streamEnabled,
+            disabled: streamBusy,
+            label: t('stream.label'),
+            onChange: toggleStream,
+          })))
+
       const chooseWorkspace = async () => {
         setWsError(null)
         setWsNotice(null)
@@ -819,6 +849,7 @@ window.__ModuleLoader__.load({
           statusCard,
           connectArea,
           pushCard,
+          streamCard,
           workspaceCard,
         ]
 

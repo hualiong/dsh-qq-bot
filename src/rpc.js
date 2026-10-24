@@ -49,6 +49,12 @@ export function installRpc(ctx, holder) {
       return status();
     }
 
+    if (method === 'replies.set') {
+      if (typeof payload?.stream !== 'boolean') return fail('bad-request', 'stream 必须是布尔值。');
+      holder.streamReplies = payload.stream;
+      return status();
+    }
+
     const state = holder.state;
     if (!state) return fail('not-ready', '插件尚未就绪，请稍后再试。');
 

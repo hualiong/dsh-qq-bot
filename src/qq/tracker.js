@@ -92,6 +92,7 @@ export function accumulateFinalAssistantText(accumulator, event) {
  */
 export class ReplyTracker {
   #requestId;
+  #onText;
   #lastSeq = -1;
   #turn = null;
   #openTurn = null;
@@ -100,8 +101,9 @@ export class ReplyTracker {
   #reason = null;
   #finalAssistantText = new AssistantTextAccumulator();
 
-  constructor({ requestId } = {}) {
+  constructor({ requestId, onText } = {}) {
     this.#requestId = requestId;
+    this.#onText = typeof onText === 'function' ? onText : null;
   }
 
   /**
@@ -161,6 +163,9 @@ export class ReplyTracker {
     if (turn !== this.#turn) return false;
 
     accumulateFinalAssistantText(this.#finalAssistantText, event);
+    // Only the post-tool remainder is published, so a live stream never shows
+    // reasoning or pre-tool chatter once the answer starts.
+    this.#onText?.(this.#finalAssistantText.text);
     return true;
   }
 

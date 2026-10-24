@@ -47,6 +47,13 @@ export const PASSIVE_WINDOW_MS = 55 * 60_000;
 
 export const QUESTION_WINDOW_MS = 3 * 60_000;
 
+// The SDK never streams faster than 300ms per frame; its 500ms default made a
+// reply visibly lag behind the web UI. Past STREAM_MAX_CHARS the cost of
+// re-uploading the whole body every frame outweighs the effect, so the stream
+// is frozen and the full text lands in one final frame instead.
+const STREAM_THROTTLE_MS = 300;
+const STREAM_MAX_CHARS = 1_500;
+
 // Marks the user text of a QQ-started turn so the agent can tell where the turn
 // came from; send_qq_message's description keys off it. Kept terse on purpose:
 // it is prepended to every prompt and shows up in the session history.
@@ -86,7 +93,33 @@ function commandOf(text) {
 // heading instead of stacking a second one above it.
 const SKIP_TEXT = '0';
 
-const SKIPPED_LINE = '回复「0」跳过这个问题。';
+// A single-select question with a few options also gets tappable buttons, one
+// per option; the tap comes back as button_id and is fed to parseAnswer like a
+// typed number. Text answers keep working, so a bot without button support
+// stays usable. QQ caps a keyboard at five rows.
+const QUESTION_BUTTON_PREFIX = 'qqbot-opt-';
+const KEYBOARD_MAX_OPTIONS = 5;
+
+export function questionKeyboard(question) {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  if (!options.length || question.multiSelect || options.length > KEYBOARD_MAX_OPTIONS) return null;
+  const buttons = options.map((option, index) => {
+    const label = String(option.label ?? '').slice(0, 10);
+    return {
+      id: `${QUESTION_BUTTON_PREFIX}${index + 1}`,
+      render_data: { label, visited_label: label, style: 1 },
+      // type 1 is the callback button: the tap arrives as an INTERACTION_CREATE
+      // event, unlike type 2 which only inserts the data text into the input box.
+      action: {
+        type: 1,
+        permission: { type: 2 },
+        data: String(index + 1),
+        unsupport_tips: '请升级手机 QQ 后重试',
+      },
+    };
+  });
+  return { content: { rows: buttons.map((button) => ({ buttons: [button] })) } };
+}
 
 // One question, rendered for QQ: numbered options when the tool supplied them,
 // a free-text invitation otherwise.
@@ -102,9 +135,8 @@ export function questionText(question, position, total) {
       lines.push(`${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`);
     });
     lines.push('', question.multiSelect
-      ? '回复序号（多选）或直接回复自定义内容'
-      : '回复序号或直接回复自定义内容');
-    lines.push('', SKIPPED_LINE);
+      ? '点按钮或回复序号（多选）或直接回复自定义内容；回复「0」跳过这个问题。'
+      : '点按钮或回复序号或直接回复自定义内容；回复「0」跳过这个问题。');
   } else {
     lines.push('', '直接回复你的答案即可。');
   }
@@ -133,7 +165,7 @@ export function parseAnswer(question, text) {
   return { id: question.id, selected: [], custom: trimmed };
 }
 
-export function createBridge({ runtime, state, ctx, settings, logger = console, stats }) {
+export function createBridge({ runtime, state, ctx, settings, logger = console, stats, streamReplies = () => true }) {
   const accepted = new Set();
   const activeTurns = new Set(); // sessions with a QQ-started turn currently running
   let queue = Promise.resolve();
@@ -177,10 +209,21 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
   // passive msg_id left to reply to.
   const questionTimeoutMs = () => questionWindowMs(settings.replyTimeoutMs);
 
+  // QQ has no "edit message" API, so the only terminal state for a button
+  // question is taking the message away: its buttons would otherwise accept a
+  // second tap and every tap after the first shows an error toast.
+  function recallQuestion(current) {
+    const messageId = current?.messageId;
+    if (!messageId || typeof runtime.recallMessage !== 'function') return;
+    runtime.recallMessage({ scope: 'c2c', targetId: state.target.targetId }, messageId)
+      .catch((error) => logger.warn?.('[dsh-qq-bot] 撤回提问消息失败：', error?.message ?? error));
+  }
+
   function settleQuestion(answer) {
     const current = pendingQuestion;
     pendingQuestion = null;
     if (current?.timer) clearTimeout(current.timer);
+    recallQuestion(current);
     current?.resolve(answer);
   }
 
@@ -188,6 +231,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     const current = pendingQuestion;
     pendingQuestion = null;
     if (current?.timer) clearTimeout(current.timer);
+    recallQuestion(current);
     current?.reject(error);
   }
 
@@ -207,7 +251,23 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
     current.sending = true;
     try {
       const question = current.questions[current.index];
-      await runtime.sendMarkdown(state.target, questionText(question, current.index + 1, current.questions.length))
+      const text = questionText(question, current.index + 1, current.questions.length);
+      const keyboard = questionKeyboard(question);
+      if (keyboard && typeof runtime.sendKeyboard === 'function') {
+        // TIM and older clients ignore callback buttons entirely; the one-line
+        // hint at the bottom of the question keeps it answerable by text.
+        const response = await runtime.sendKeyboard(state.target, text, keyboard).catch((error) => {
+          logger.warn?.('[dsh-qq-bot] 按钮提问发送失败，改用文字：', error?.message ?? error);
+          return null;
+        });
+        if (response) {
+          // The question message becomes the msg_id for the click's receipt.
+          current.messageId = response.id;
+          current.replyTarget = { scope: 'c2c', targetId: state.target.targetId, msgId: response.id };
+          return;
+        }
+      }
+      await runtime.sendMarkdown(state.target, text)
         .catch((error) => logger.warn?.('[dsh-qq-bot] 提问转发失败：', error?.message ?? error));
     } finally {
       current.sending = false;
@@ -291,16 +351,94 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
       return true;
     }
     if (skipped) await sendMarkdown(message, '收到，已跳过。');
+    // Take the answered question away before asking the next one, so its
+    // buttons can never be tapped twice.
+    recallQuestion(current);
     await promptQuestion(current);
     return true;
   }
 
+  // A tap on a question button is an answer for the pending question: ack it
+  // (QQ wants the acknowledgement within five seconds) and run the same path as
+  // a typed number.
+  async function interaction(event) {
+    const id = event?.id;
+    if (!id) return;
+    const resolved = event?.data?.resolved ?? {};
+    // resolved.button_data carries action.data; button_id is the same tail in
+    // QQ's payload. Accept either so an SDK shape change cannot eat the tap.
+    const raw = resolved.button_id ?? resolved.button_data ?? '';
+    const tapped = /^qqbot-opt-(\d+)$/u.exec(String(raw)) ?? (resolved.button_data ? [raw, String(resolved.button_data)] : null);
+    const current = pendingQuestion;
+    const owner = event?.user_openid;
+    // Ack codes: 0 ok, 1 failed, 2 too frequent, 3 duplicate, 4 no permission.
+    // A question that is already gone is a duplicate tap, not a failure.
+    if (!current) {
+      await runtime.acknowledgeInteraction?.(id, 3);
+      return;
+    }
+    if (!tapped) {
+      await runtime.acknowledgeInteraction?.(id, 0);
+      return;
+    }
+    if (owner && state.ownerOpenId && owner !== state.ownerOpenId) {
+      await runtime.acknowledgeInteraction?.(id, 4);
+      return;
+    }
+    await runtime.acknowledgeInteraction?.(id, 0);
+    await answerQuestion({ replyTarget: current.replyTarget ?? state.target }, tapped[1]);
+  }
+
   async function answer(message, sessionId, text, startedAt) {
     activeTurns.add(sessionId);
+    // C2C passive replies can be streamed: every frame replaces the message
+    // body, so the answer is typed out and the last frame is what stays. Any
+    // failure cancels the stream and the answer is sent normally instead.
+    let stream = null;
+    let streamBroken = false;
+    // Past this length every frame re-uploads the whole body, which ends up
+    // slower than one final send; freeze the visible part and finish once.
+    let streamFrozen = false;
+    let streamQueue = Promise.resolve();
+    const streamText = (value) => {
+      if (streamBroken || streamFrozen || !value || !message.replyTarget?.msgId) return;
+      if (typeof runtime.openStream !== 'function' || !streamReplies()) return;
+      streamQueue = streamQueue.then(async () => {
+        if (streamBroken || streamFrozen) return;
+        if (value.length > STREAM_MAX_CHARS) {
+          streamFrozen = true;
+          return;
+        }
+        try {
+          stream ??= runtime.openStream(message.replyTarget, { throttleMs: STREAM_THROTTLE_MS });
+          await stream.update(value);
+        } catch (error) {
+          streamBroken = true;
+          try { stream?.cancel(); } catch { /* already gone */ }
+          logger.warn?.('[dsh-qq-bot] 流式回复失败，改用普通回复：', error?.message ?? error);
+        }
+      });
+    };
     try {
-      const result = await askSession(ctx, sessionId, `${QQ_ORIGIN_MARKER} ${text}`, { timeoutMs: settings.replyTimeoutMs });
+      const result = await askSession(ctx, sessionId, `${QQ_ORIGIN_MARKER} ${text}`, {
+        timeoutMs: settings.replyTimeoutMs,
+        onText: streamText,
+      });
+      await streamQueue;
       const target = deliverTarget(message, startedAt);
       if (result.text) {
+        if (stream && !streamBroken) {
+          // The last update already carried the full text; complete() only marks
+          // the stream done. A throw means nothing above was delivered.
+          try {
+            if (streamFrozen) await stream.update(result.text);
+            await stream.complete();
+            return;
+          } catch (error) {
+            streamBroken = true;
+            logger.warn?.('[dsh-qq-bot] 流式回复收尾失败，改用普通回复：', error?.message ?? error);
+          }
+        }
         try {
           await runtime.sendMarkdown(target, result.text);
         } catch (error) {
@@ -313,6 +451,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
         }
         return;
       }
+      try { stream?.cancel(); } catch { /* already gone */ }
       if (result.reason?.kind === 'completed') {
         return runtime.sendText(target, '本轮处理已结束，没有文本回复。').catch((error) => {
           logger.warn?.('[dsh-qq-bot] QQ 回复发送失败：', error?.message ?? error);
@@ -414,6 +553,7 @@ export function createBridge({ runtime, state, ctx, settings, logger = console, 
 
   return {
     userQuestion,
+    interaction,
     async accept(message) {
       if (!message || message.senderIsBot === true || message.kind !== 'c2c') return;
       const messageId = message.messageId;

@@ -12,7 +12,7 @@ const RETRY_MS = 15_000;
 // msg_type 7 path; only this number differs.
 const MEDIA_FILE_TYPES = Object.freeze({ image: 1, file: 4 });
 
-export function createQqRuntime({ appId, appSecret, onMessage, logger = console, createBot }) {
+export function createQqRuntime({ appId, appSecret, onMessage, onInteraction, logger = console, createBot }) {
   const makeBot = createBot ?? ((options) => new QQBot(options));
   let bot = null;
   let stopping = false;
@@ -85,7 +85,24 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
       logger.warn?.('[dsh-qq-bot] QQ 连接错误：', status.lastError);
       if (!status.ready) settle.reject(error);
     });
+    // 1.0.5 reports why the socket dropped and whether it will recover; /status
+    // shows the reason instead of silently staying "connected".
+    instance.on('disconnected', ({ code, reason, willReconnect } = {}) => {
+      status.ready = false;
+      status.state = willReconnect ? 'connecting' : 'failed';
+      status.lastError = `连接断开（${code ?? '?'}${reason ? `：${reason}` : ''}）`;
+      logger.warn?.('[dsh-qq-bot] QQ 连接断开：', status.lastError);
+    });
     instance.on('message', async (_ctx, message) => { await onMessage(message); });
+    // Button taps (see sendKeyboard). Errors inside the bridge must not escape:
+    // the SDK event loop is not a place to surface them.
+    instance.on('interaction', async (_ctx, event) => {
+      try {
+        await onInteraction?.(event);
+      } catch (error) {
+        logger.warn?.('[dsh-qq-bot] 处理按钮点击失败：', error?.message ?? error);
+      }
+    });
     bot = instance;
     instance.start().catch((error) => {
       status.ready = false;
@@ -167,6 +184,25 @@ export function createQqRuntime({ appId, appSecret, onMessage, logger = console,
         ...location,
         content: caption,
       });
+    },
+    // QQ only renders keyboards on markdown messages (msg_type 2): a text body
+    // with a keyboard field is rejected, which is why this is not sendTextWithKeyboard.
+    async sendKeyboard(target, text, keyboard) {
+      return requireBot().sendMarkdown(target, text, { keyboard });
+    },
+    async acknowledgeInteraction(id, code) {
+      await requireBot().acknowledgeInteraction(id, code).catch((error) => {
+        logger.warn?.('[dsh-qq-bot] 按钮回执失败：', error?.message ?? error);
+      });
+    },
+    // The only way to retire a button message: QQ has no message-edit API.
+    async recallMessage(target, messageId) {
+      return requireBot().recallMessage(target, messageId);
+    },
+    // C2C-only progressive reply: each update() replaces the message body, so
+    // the last frame is the answer the user keeps.
+    openStream(target, { throttleMs } = {}) {
+      return requireBot().openStream({ target, throttleMs });
     },
   };
 }

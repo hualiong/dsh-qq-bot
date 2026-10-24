@@ -34,6 +34,7 @@ export async function describeStatus(ctx, holder) {
     appIdMasked: maskAppId(settings.appId),
     secretConfigured,
     toolEnabled: holder.toolEnabled !== false,
+    streamReplies: holder.streamReplies === true,
     bot: profile === null ? null : {
       name: profile.name,
       avatar: profile.avatar,

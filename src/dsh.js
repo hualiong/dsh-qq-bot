@@ -76,9 +76,9 @@ export async function sessionExists(ctx, sessionId) {
  * Submit `text` to `sessionId` and wait for the turn it starts to end.
  * The timeout is a stall window: every event of the tracked turn renews it.
  */
-export async function askSession(ctx, sessionId, text, { timeoutMs } = {}) {
+export async function askSession(ctx, sessionId, text, { timeoutMs, onText } = {}) {
   const requestId = `${REQUEST_PREFIX}-${randomUUID()}`;
-  const tracker = new ReplyTracker({ requestId });
+  const tracker = new ReplyTracker({ requestId, onText });
   let timer = null;
   let settle;
   const finished = new Promise((resolve) => { settle = resolve; });

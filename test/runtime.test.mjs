@@ -49,6 +49,53 @@ test('sendMedia forwards the media kind and source to the SDK', async () => {
   await runtime.stop();
 });
 
+test('sendKeyboard and acknowledgeInteraction go through the SDK, and a drop is visible', async () => {
+  const handlers = new Map();
+  const calls = [];
+  const fake = {
+    api: { async get() { return { id: '1', username: 'bot', avatar: '', share_url: '' }; } },
+    use() { return this; },
+    on(event, handler) { handlers.set(event, handler); return this; },
+    async start() { handlers.get('ready')?.(); },
+    stop() { /* nothing to tear down */ },
+    // The SDK's markdown path is the only one QQ renders keyboards on.
+    async sendMarkdown(target, text, opts) {
+      calls.push({ target, text, keyboard: opts?.keyboard });
+      return { id: 'msg-1' };
+    },
+    async acknowledgeInteraction(id, code) { calls.push({ id, code }); },
+    async recallMessage(target, messageId) { calls.push({ recalled: messageId }); },
+  };
+  const runtime = createQqRuntime({
+    appId: 'app-id',
+    appSecret: 'app-secret',
+    onMessage: () => undefined,
+    onInteraction: () => undefined,
+    createBot: () => fake,
+    logger: { warn: () => undefined, info: () => undefined },
+  });
+  await runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const target = { scope: 'c2c', targetId: 'openid', msgId: 'm-1' };
+  const keyboard = { content: { rows: [{ buttons: [{ id: 'qqbot-opt-1' }] }] } };
+  assert.deepEqual(await runtime.sendKeyboard(target, '选一个', keyboard), { id: 'msg-1' });
+  await runtime.acknowledgeInteraction('i-1', 0);
+  await runtime.recallMessage(target, 'msg-1');
+  assert.deepEqual(calls, [
+    { target, text: '选一个', keyboard },
+    { id: 'i-1', code: 0 },
+    { recalled: 'msg-1' },
+  ]);
+
+  handlers.get('disconnected')({ code: 4009, reason: 'session expired', willReconnect: false });
+  assert.equal(runtime.ready, false);
+  assert.equal(runtime.status.state, 'failed');
+  assert.match(runtime.status.lastError, /4009/u);
+
+  await runtime.stop();
+});
+
 test('the ready handshake publishes the bot profile from /users/@me', async () => {
   const handlers = new Map();
   const fake = {
